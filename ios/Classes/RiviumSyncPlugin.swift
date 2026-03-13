@@ -1,5 +1,6 @@
 import Flutter
 import UIKit
+import RiviumSync
 
 public class RiviumSyncPlugin: NSObject, FlutterPlugin {
     private var channel: FlutterMethodChannel?
