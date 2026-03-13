@@ -1,61 +1,43 @@
 PODS:
-  - CocoaMQTT (2.1.6):
-    - CocoaMQTT/Core (= 2.1.6)
-  - CocoaMQTT/Core (2.1.6):
+  - CocoaMQTT (2.2.3):
+    - CocoaMQTT/Core (= 2.2.3)
+  - CocoaMQTT/Core (2.2.3):
     - MqttCocoaAsyncSocket (~> 1.0.8)
   - Flutter (1.0.0)
   - MqttCocoaAsyncSocket (1.0.8)
-  - PNProtocol (1.0.0):
+  - PNProtocol (0.2.1):
     - CocoaMQTT (~> 2.1)
-  - rivium_push (1.0.13):
+  - rivium_sync (0.1.0):
     - Flutter
-    - RiviumPushSDK (~> 1.0.13)
-  - rivium_sync (1.0.1):
-    - Flutter
-    - RiviumSyncSDK
-  - RiviumPushSDK (1.0.13):
-    - CocoaMQTT (~> 2.1)
-    - PNProtocol (~> 1.0)
-  - RiviumSyncSDK (1.0.5):
-    - CocoaMQTT (~> 2.1.0)
+    - RiviumSync (~> 0.1)
+  - RiviumSync (0.1.0):
+    - PNProtocol (~> 0.2)
 
 DEPENDENCIES:
   - Flutter (from `Flutter`)
-  - PNProtocol (from `/Users/alitazik/Projects/pushino_project/protocol/ios/PNProtocol`)
-  - rivium_push (from `.symlinks/plugins/rivium_push/ios`)
   - rivium_sync (from `.symlinks/plugins/rivium_sync/ios`)
-  - RiviumPushSDK (from `/Users/alitazik/Projects/pushino_project/ios/RiviumPush`)
-  - RiviumSyncSDK (from `/Users/alitazik/Projects/syncleap_project/ios/RiviumSync`)
 
 SPEC REPOS:
   trunk:
     - CocoaMQTT
     - MqttCocoaAsyncSocket
+    - PNProtocol
+    - RiviumSync
 
 EXTERNAL SOURCES:
   Flutter:
     :path: Flutter
-  PNProtocol:
-    :path: "/Users/alitazik/Projects/pushino_project/protocol/ios/PNProtocol"
-  rivium_push:
-    :path: ".symlinks/plugins/rivium_push/ios"
   rivium_sync:
     :path: ".symlinks/plugins/rivium_sync/ios"
-  RiviumPushSDK:
-    :path: "/Users/alitazik/Projects/pushino_project/ios/RiviumPush"
-  RiviumSyncSDK:
-    :path: "/Users/alitazik/Projects/syncleap_project/ios/RiviumSync"
 
 SPEC CHECKSUMS:
-  CocoaMQTT: 1f206228b29318eabdacad0c2e4e88575922c27a
+  CocoaMQTT: 2889e233a2427ed012d67c9f50c91053f7c1faf6
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
   MqttCocoaAsyncSocket: 77d3b74f76228dd5a05d1f9526eab101d415b30c
-  PNProtocol: 44b7780bfb0219893efcd4e69a5beea5c8f9ff63
-  rivium_push: 349734bdb4e474776af53a2b73d0427b65e886a6
-  rivium_sync: d5b0c83468cb36382152bd0b3826e2184a908257
-  RiviumPushSDK: 4d0fffbb8b419a18bef7319debb9587954692bce
-  RiviumSyncSDK: dba15e974d5bb5c757d57559e0b009ecb6c3b3d0
+  PNProtocol: ba53bccd366f2e20b69cdd2fa32cf536da1ac387
+  rivium_sync: acb2fe5d9845d9bb2d7b184c0ade02f4b13408dd
+  RiviumSync: 6177a9ace68debd266eb3c07fdc37e4248345b4c
 
-PODFILE CHECKSUM: af46b39964ca8cad0803c7440b47cacc9b920f45
+PODFILE CHECKSUM: a57f30d18f102dd3ce366b1d62a55ecbef2158e5
 
 COCOAPODS: 1.16.2

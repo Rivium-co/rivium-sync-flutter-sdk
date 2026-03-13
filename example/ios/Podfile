@@ -31,13 +31,6 @@ target 'Runner' do
   use_frameworks!
   use_modular_headers!
 
-  # RiviumSyncSDK - local
-  pod 'RiviumSyncSDK', :path => File.expand_path('../../../ios/RiviumSync', __dir__)
-  # PNProtocol - local (required by RiviumPushSDK)
-  pod 'PNProtocol', :path => File.expand_path('../../../../pushino_project/protocol/ios/PNProtocol', __dir__)
-  # RiviumPushSDK - local
-  pod 'RiviumPushSDK', :path => File.expand_path('../../../../pushino_project/ios/RiviumPush', __dir__)
-
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
   target 'RunnerTests' do
     inherit! :search_paths
