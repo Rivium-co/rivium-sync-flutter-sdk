@@ -1,0 +1,26 @@
+name: rivium_sync
+description: Realtime database plugin for Flutter - Firebase alternative with instant data synchronization across all connected devices
+version: 0.1.0
+homepage: https://rivium.co/
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+  flutter: '>=3.3.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: co.rivium.sync.flutter
+        pluginClass: RiviumSyncPlugin
+      ios:
+        pluginClass: RiviumSyncPlugin

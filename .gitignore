@@ -1,0 +1,21 @@
+# Build outputs
+.dart_tool/
+build/
+.packages
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+
+# Dependencies
+pubspec.lock
+
+# Claude Code
+.claude/
+
+# Generated
+*.g.dart
