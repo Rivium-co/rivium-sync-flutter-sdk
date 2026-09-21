@@ -51,6 +51,8 @@ public class RiviumSyncPlugin: NSObject, FlutterPlugin {
         case "disconnect":
             RiviumSync.shared?.disconnect()
             result(nil)
+        case "setUserToken":
+            handleSetUserToken(call, result: result)
         case "isConnected":
             result(RiviumSync.shared?.isConnected ?? false)
 
@@ -119,6 +121,18 @@ public class RiviumSyncPlugin: NSObject, FlutterPlugin {
         }
     }
 
+    /// Replace the signed user token. Dart fetches it from the app's own backend
+    /// and pushes it down, which keeps the bridge one-way.
+    private func handleSetUserToken(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let sync = riviumSync else {
+            result(FlutterError(code: "notInitialized", message: "Call init before setUserToken", details: nil))
+            return
+        }
+        let args = call.arguments as? [String: Any]
+        sync.userTokens.set(args?["token"] as? String)
+        result(nil)
+    }
+
     private func handleInit(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         guard let args = call.arguments as? [String: Any],
               let apiKey = args["apiKey"] as? String else {
@@ -140,6 +154,7 @@ public class RiviumSyncPlugin: NSObject, FlutterPlugin {
         let config = RiviumSyncConfig(
             apiKey: apiKey,
             userId: args["userId"] as? String,
+            userToken: args["userToken"] as? String,
             debugMode: args["debugMode"] as? Bool ?? false,
             autoReconnect: args["autoReconnect"] as? Bool ?? true,
             offlineEnabled: args["offlineEnabled"] as? Bool ?? false,

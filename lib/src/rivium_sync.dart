@@ -98,6 +98,22 @@ class RiviumSync {
   }
 
   /// Connect to realtime sync service
+  /// Replace the signed user token the SDK sends with every request.
+  ///
+  /// Your backend mints it with its server secret (`POST /users/token`); the app
+  /// never holds that secret. Call this when the user signs in, and again
+  /// whenever you refresh the token - they are short lived, an hour by default.
+  ///
+  /// ```dart
+  /// final token = await myBackend.fetchRiviumSyncToken();
+  /// await RiviumSync.setUserToken(token);
+  /// ```
+  ///
+  /// Pass `null` to stop sending a token, for example when the user signs out.
+  static Future<void> setUserToken(String? token) async {
+    await _channel.invokeMethod('setUserToken', {'token': token});
+  }
+
   static Future<void> connect() async {
     _ensureInitialized();
     await _channel.invokeMethod('connect');

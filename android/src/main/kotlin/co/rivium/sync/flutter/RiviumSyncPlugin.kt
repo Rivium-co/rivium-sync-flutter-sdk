@@ -82,6 +82,7 @@ class RiviumSyncPlugin : FlutterPlugin, MethodCallHandler {
             "connect" -> connect(result)
             "disconnect" -> disconnect(result)
             "isConnected" -> result.success(riviumSync?.isConnected() ?: false)
+            "setUserToken" -> setUserToken(call, result)
 
             // Database operations
             "listDatabases" -> listDatabases(result)
@@ -121,6 +122,21 @@ class RiviumSyncPlugin : FlutterPlugin, MethodCallHandler {
         }
     }
 
+    /**
+     * Replace the signed user token. Dart fetches it from the app's own backend
+     * (it has an HTTP client of its own) and pushes it down here, which keeps
+     * the bridge one-way and avoids calling back into Dart from the SDK.
+     */
+    private fun setUserToken(call: MethodCall, result: Result) {
+        val sync = riviumSync
+        if (sync == null) {
+            result.error("notInitialized", "Call init before setUserToken", null)
+            return
+        }
+        sync.userTokens.set(call.argument<String>("token"))
+        result.success(null)
+    }
+
     private fun init(call: MethodCall, result: Result) {
         val args = call.arguments as Map<*, *>
 
@@ -138,8 +154,11 @@ class RiviumSyncPlugin : FlutterPlugin, MethodCallHandler {
             .autoReconnect(args["autoReconnect"] as? Boolean ?: true)
             .offlineEnabled(offlineEnabled)
 
-        // User identity for Security Rules (auth.uid)
+        // User identity for Security Rules (auth.uid). A signed token is
+        // trustworthy; the plain userId is not, and a project that enforces
+        // requireSignedTokens refuses it.
         (args["userId"] as? String)?.let { configBuilder.userId(it) }
+        (args["userToken"] as? String)?.let { configBuilder.userToken(it) }
 
         // Other offline persistence options
         (args["offlineCacheSizeMb"] as? Int)?.let { configBuilder.offlineCacheSizeMb(it) }

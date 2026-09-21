@@ -47,8 +47,8 @@ void main() {
 
   group('RiviumSyncConfig', () {
     test('should require apiKey', () {
-      final config = RiviumSyncConfig(apiKey: 'rv_test_abc123');
-      expect(config.apiKey, 'rv_test_abc123');
+      final config = RiviumSyncConfig(apiKey: 'rv_live_abc123');
+      expect(config.apiKey, 'rv_live_abc123');
     });
 
     test('should have correct default values', () {
@@ -86,7 +86,7 @@ void main() {
 
     test('toMap should serialize all fields', () {
       final config = RiviumSyncConfig(
-        apiKey: 'rv_test_key',
+        apiKey: 'rv_live_key',
         debugMode: true,
         autoReconnect: false,
         offlineEnabled: true,
@@ -98,7 +98,7 @@ void main() {
 
       final map = config.toMap();
 
-      expect(map['apiKey'], 'rv_test_key');
+      expect(map['apiKey'], 'rv_live_key');
       expect(map['debugMode'], true);
       expect(map['autoReconnect'], false);
       expect(map['offlineEnabled'], true);
@@ -784,14 +784,14 @@ void main() {
 
     group('init', () {
       test('should call native init with config', () async {
-        final config = RiviumSyncConfig(apiKey: 'rv_test_key', debugMode: true);
+        final config = RiviumSyncConfig(apiKey: 'rv_live_key', debugMode: true);
         await RiviumSync.init(config);
 
         final initCalls = mockHandler.callsFor('init');
         expect(initCalls.length, 1);
 
         final args = initCalls.first.arguments as Map;
-        expect(args['apiKey'], 'rv_test_key');
+        expect(args['apiKey'], 'rv_live_key');
         expect(args['debugMode'], true);
       });
 

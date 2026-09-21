@@ -1,6 +1,7 @@
 # Build outputs
 .dart_tool/
 build/
+.gradle/
 .packages
 
 # IDE

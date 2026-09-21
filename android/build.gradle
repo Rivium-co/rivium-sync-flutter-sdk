@@ -1,10 +1,9 @@
 group 'co.rivium.sync.flutter'
-version '1.0.0'
+version '0.2.0'
 
 buildscript {
     ext.kotlin_version = '1.9.20'
     repositories {
-        mavenLocal()
         google()
         mavenCentral()
     }
@@ -17,7 +16,6 @@ buildscript {
 
 allprojects {
     repositories {
-        mavenLocal()
         google()
         mavenCentral()
     }
@@ -62,5 +60,5 @@ dependencies {
     implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
 
     // RiviumSync native Android SDK (from Maven Central)
-    implementation 'co.rivium:rivium-sync-android:0.1.0'
+    implementation 'co.rivium:rivium-sync-android:0.2.0'
 }
