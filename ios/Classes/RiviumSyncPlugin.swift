@@ -124,7 +124,7 @@ public class RiviumSyncPlugin: NSObject, FlutterPlugin {
     /// Replace the signed user token. Dart fetches it from the app's own backend
     /// and pushes it down, which keeps the bridge one-way.
     private func handleSetUserToken(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
-        guard let sync = riviumSync else {
+        guard let sync = RiviumSync.shared else {
             result(FlutterError(code: "notInitialized", message: "Call init before setUserToken", details: nil))
             return
         }
