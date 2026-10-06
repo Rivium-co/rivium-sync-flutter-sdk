@@ -8,7 +8,10 @@ class SyncCollection {
   final MethodChannel _channel;
   final String _databaseId;
 
-  /// Collection ID
+  /// The identifier this collection is addressed by.
+  ///
+  /// For a reference obtained with `database.collection(name)` this is the
+  /// collection NAME you passed (as shown in Rivium Console).
   final String id;
 
   /// Collection name
@@ -16,7 +19,8 @@ class SyncCollection {
 
   SyncCollection(this._channel, this._databaseId, this.id, this.name);
 
-  /// Database ID this collection belongs to
+  /// The database this collection belongs to, as it was addressed - the
+  /// database NAME passed to `RiviumSync.database(name)`.
   String get databaseId => _databaseId;
 
   // ==================== CRUD Operations ====================

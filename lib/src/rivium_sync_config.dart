@@ -1,3 +1,11 @@
+import 'dart:async';
+
+/// Returns the signed user token for whoever is signed in, or null when no
+/// one is. Usually one call to your own backend, which mints the token with
+/// the project's server secret. The same function can serve Rivium Push and
+/// Rivium Chat: it is one Rivium user token.
+typedef RiviumSyncTokenProvider = FutureOr<String?> Function();
+
 /// Conflict resolution strategy for offline sync
 enum ConflictStrategy {
   /// Server data wins (default)
@@ -35,6 +43,12 @@ class RiviumSyncConfig {
   /// instance after your own session refresh or when the user signs in again.
   final String? userToken;
 
+  /// Lets the SDK get the user token by itself: at [RiviumSync.init], again
+  /// shortly before the token expires, and when the app returns to the
+  /// foreground with an expired one. Call [RiviumSync.refreshUserToken] when
+  /// the user signs in or out. Preferred over [userToken].
+  final RiviumSyncTokenProvider? tokenProvider;
+
   /// Enable debug logging
   final bool debugMode;
 
@@ -65,6 +79,7 @@ class RiviumSyncConfig {
     required this.apiKey,
     this.userId,
     this.userToken,
+    this.tokenProvider,
     this.debugMode = false,
     this.autoReconnect = true,
     this.offlineEnabled = false,

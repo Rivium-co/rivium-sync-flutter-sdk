@@ -1159,7 +1159,7 @@ void main() {
 
         final col = await database.createCollection('new-collection');
         expect(col, isA<SyncCollection>());
-        expect(col.id, 'new-col-id');
+        expect(col.id, 'new-collection'); // keyed by name for realtime topics
         expect(col.name, 'new-collection');
       });
 

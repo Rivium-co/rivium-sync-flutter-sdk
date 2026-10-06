@@ -55,6 +55,8 @@ public class RiviumSyncPlugin: NSObject, FlutterPlugin {
             handleSetUserToken(call, result: result)
         case "isConnected":
             result(RiviumSync.shared?.isConnected ?? false)
+        case "isAwaitingUserToken":
+            result(RiviumSync.shared?.isAwaitingUserToken ?? false)
 
         // Database operations
         case "listDatabases":
@@ -167,6 +169,13 @@ public class RiviumSyncPlugin: NSObject, FlutterPlugin {
         RiviumSync.initialize(config: config)
 
         RiviumSync.shared?.delegate = self
+        // The project requires a user token and none is set yet: connect() is
+        // parked, not failed. The SDK connects when setUserToken supplies one.
+        RiviumSync.shared?.onAwaitingUserToken = { [weak self] in
+            DispatchQueue.main.async {
+                self?.channel?.invokeMethod("onAwaitingUserToken", arguments: nil)
+            }
+        }
 
         result(nil)
     }

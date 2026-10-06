@@ -82,6 +82,7 @@ class RiviumSyncPlugin : FlutterPlugin, MethodCallHandler {
             "connect" -> connect(result)
             "disconnect" -> disconnect(result)
             "isConnected" -> result.success(riviumSync?.isConnected() ?: false)
+            "isAwaitingUserToken" -> result.success(riviumSync?.isAwaitingUserToken ?: false)
             "setUserToken" -> setUserToken(call, result)
 
             // Database operations
@@ -178,6 +179,11 @@ class RiviumSyncPlugin : FlutterPlugin, MethodCallHandler {
         Log.d(TAG, "Flutter Plugin init: config.offlineEnabled=${config.offlineEnabled}")
 
         riviumSync = RiviumSync.initialize(context, config)
+        // The project requires a user token and none is set yet: connect() is
+        // parked, not failed. The SDK connects when setUserToken supplies one.
+        riviumSync?.onAwaitingUserToken = {
+            scope.launch { channel.invokeMethod("onAwaitingUserToken", null) }
+        }
         riviumSync?.setConnectionListener(object : RiviumSync.ConnectionListener {
             override fun onConnected() {
                 scope.launch { channel.invokeMethod("onConnectionState", true) }

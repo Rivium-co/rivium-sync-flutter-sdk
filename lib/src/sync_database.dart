@@ -8,7 +8,10 @@ import 'write_batch.dart';
 class SyncDatabase {
   final MethodChannel _channel;
 
-  /// Database ID
+  /// The identifier this database is addressed by.
+  ///
+  /// For a reference obtained with `RiviumSync.database(name)` this is the
+  /// database NAME you passed (as shown in Rivium Console).
   final String id;
 
   /// Database name
@@ -35,9 +38,15 @@ class SyncDatabase {
     return WriteBatch(_channel);
   }
 
-  /// Get a collection reference by ID or name
-  SyncCollection collection(String collectionIdOrName) {
-    return SyncCollection(_channel, id, collectionIdOrName, collectionIdOrName);
+  /// Get a collection reference by its [name].
+  ///
+  /// Pass the collection NAME exactly as shown in Rivium Console (for example
+  /// `'todos'`), not its UUID. Realtime updates are published per collection
+  /// name, so `listen` only receives changes when you address the collection
+  /// by name; a UUID would still work for plain reads and writes but live
+  /// updates would never arrive.
+  SyncCollection collection(String name) {
+    return SyncCollection(_channel, id, name, name);
   }
 
   /// List all collections in this database
@@ -69,7 +78,9 @@ class SyncDatabase {
     }
 
     final info = CollectionInfo.fromMap(result);
-    return SyncCollection(_channel, id, info.id, info.name);
+    // Keyed by name, like collection(): realtime topics carry names, so a
+    // UUID-keyed collection would never receive live updates.
+    return SyncCollection(_channel, id, info.name, info.name);
   }
 
   /// Delete a collection
