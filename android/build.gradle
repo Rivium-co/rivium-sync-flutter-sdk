@@ -60,5 +60,5 @@ dependencies {
     implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
 
     // RiviumSync native Android SDK (from Maven Central)
-    implementation 'co.rivium:rivium-sync-android:0.2.1'
+    implementation 'co.rivium:rivium-sync-android:0.2.2'
 }
