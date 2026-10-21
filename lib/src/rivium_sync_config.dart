@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'rivium_sync_version.dart';
+
 /// Returns the signed user token for whoever is signed in, or null when no
 /// one is. Usually one call to your own backend, which mints the token with
 /// the project's server secret. The same function can serve Rivium Push and
@@ -100,5 +102,8 @@ class RiviumSyncConfig {
         'syncOnReconnect': syncOnReconnect,
         'conflictStrategy': conflictStrategy.name,
         'maxSyncRetries': maxSyncRetries,
+        // The native SDK reports this plugin in the X-Rivium-SDK header.
+        'wrapperSdkName': riviumSyncSdkName,
+        'wrapperSdkVersion': riviumSyncSdkVersion,
       };
 }

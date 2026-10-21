@@ -175,6 +175,9 @@ class RiviumSyncPlugin : FlutterPlugin, MethodCallHandler {
             configBuilder.conflictStrategy(conflictStrategy)
         }
 
+        // Report this plugin (flutter/<version>) in the X-Rivium-SDK header.
+        configBuilder.wrapperSdk(args["wrapperSdkName"] as? String, args["wrapperSdkVersion"] as? String)
+
         val config = configBuilder.build()
         Log.d(TAG, "Flutter Plugin init: config.offlineEnabled=${config.offlineEnabled}")
 

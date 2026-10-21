@@ -1,3 +1,13 @@
+## Unreleased
+
+- The native SDKs now report this plugin to the Sync API in the
+  `X-Rivium-SDK` header (`flutter/<version> android/<version>` or
+  `flutter/<version> ios/<version>`), so the Console can show which SDK and
+  version a project uses. Added `riviumSyncSdkName` / `riviumSyncSdkVersion`.
+- Needs the native SDKs that accept the wrapper identity: the plugin now
+  depends on rivium-sync-android 0.2.4 and RiviumSync (iOS) ~> 0.2.3, which
+  must be released first.
+
 ## 0.2.3
 
 - With offline persistence on, writes made before the realtime connection is up

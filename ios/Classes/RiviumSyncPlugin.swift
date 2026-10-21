@@ -163,7 +163,10 @@ public class RiviumSyncPlugin: NSObject, FlutterPlugin {
             offlineCacheSizeMb: args["offlineCacheSizeMb"] as? Int,
             syncOnReconnect: args["syncOnReconnect"] as? Bool ?? true,
             conflictStrategy: conflictStrategy,
-            maxSyncRetries: args["maxSyncRetries"] as? Int
+            maxSyncRetries: args["maxSyncRetries"] as? Int,
+            // Report this plugin (flutter/<version>) in the X-Rivium-SDK header.
+            wrapperSdkName: args["wrapperSdkName"] as? String,
+            wrapperSdkVersion: args["wrapperSdkVersion"] as? String
         )
 
         RiviumSync.initialize(config: config)
