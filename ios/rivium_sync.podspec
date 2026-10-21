@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name             = 'rivium_sync'
-  s.version          = '0.2.3'
+  s.version          = '0.2.4'
   s.summary          = 'Flutter plugin for RiviumSync realtime database SDK'
   s.description      = <<-DESC
 Flutter plugin for RiviumSync — realtime database SDK with offline-first sync
