@@ -10,7 +10,7 @@ Realtime database SDK for Flutter with offline-first sync.
 
 ```yaml
 dependencies:
-  rivium_sync: ^0.2.5
+  rivium_sync: ^0.2.6
 ```
 
 Then run:

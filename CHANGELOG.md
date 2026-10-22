@@ -1,3 +1,9 @@
+## 0.2.6
+
+- Realtime is always encrypted; the SDK never connects unencrypted.
+- Uses rivium-sync-android 0.2.6 and RiviumSync (iOS) 0.2.5, installed
+  automatically.
+
 ## 0.2.5
 
 - Realtime connects where the Sync API tells it (host, port and whether the
