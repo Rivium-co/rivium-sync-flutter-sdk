@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/services.dart';
+import 'listener_events.dart';
 import 'sync_document.dart';
 import 'sync_collection.dart';
 
@@ -151,37 +152,31 @@ class SyncQuery {
     void Function(List<SyncDocument> documents) callback, {
     void Function(Object error)? onError,
   }) {
-    // Create a unique listener ID
-    final listenerId = 'query_${DateTime.now().millisecondsSinceEpoch}';
+    final listenerId = ListenerEvents.newListenerId('query');
 
-    // IMPORTANT: Set up event channel subscription BEFORE calling native method
-    // This prevents race condition where native sends events before Flutter is listening
-    final subscription = const EventChannel('co.rivium.sync/query_events')
-        .receiveBroadcastStream(listenerId)
-        .listen(
+    // Subscribe BEFORE calling the native method, so no event is sent before Flutter listens.
+    final stop = ListenerEvents.listen(
+      'co.rivium.sync/query_events',
+      listenerId,
       (data) {
-        if (data is Map) {
-          // Check for error
-          if (data['error'] != null) {
-            onError?.call(RiviumSyncListenerError(
-              code: data['error']['code'] as String? ?? 'UNKNOWN_ERROR',
-              message: data['error']['message'] as String? ?? 'Unknown error',
-            ));
-            return;
-          }
-          // Extract documents from the wrapped response {listenerId: ..., documents: [...]}
-          final documentsList = data['documents'];
-          if (documentsList is List) {
-            final documents = documentsList
-                .map((item) => SyncDocument.fromMap(item as Map))
-                .toList();
-            callback(documents);
-          }
+        // Check for error
+        if (data['error'] != null) {
+          onError?.call(RiviumSyncListenerError(
+            code: data['error']['code'] as String? ?? 'UNKNOWN_ERROR',
+            message: data['error']['message'] as String? ?? 'Unknown error',
+          ));
+          return;
+        }
+        // Extract documents from the wrapped response {listenerId: ..., documents: [...]}
+        final documentsList = data['documents'];
+        if (documentsList is List) {
+          final documents = documentsList
+              .map((item) => SyncDocument.fromMap(item as Map))
+              .toList();
+          callback(documents);
         }
       },
-      onError: (error) {
-        onError?.call(error);
-      },
+      onError,
     );
 
     // Now start the native listener after event channel is ready
@@ -191,7 +186,7 @@ class SyncQuery {
     });
 
     return ListenerRegistration(() {
-      subscription.cancel();
+      stop();
       _channel.invokeMethod('removeQueryListener', {'listenerId': listenerId});
     });
   }

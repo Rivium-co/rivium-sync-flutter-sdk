@@ -28,9 +28,11 @@ class RiviumSyncPlugin : FlutterPlugin, MethodCallHandler {
     private val listeners = mutableMapOf<String, ListenerRegistration>()
 
     // Event sinks for streaming updates to Flutter
-    private val collectionEventSinks = mutableMapOf<String, EventChannel.EventSink>()
-    private val documentEventSinks = mutableMapOf<String, EventChannel.EventSink>()
-    private val queryEventSinks = mutableMapOf<String, EventChannel.EventSink>()
+    // One stream per event channel: Flutter keeps a single active stream per channel, so every listener of a kind
+    // shares it and each event carries its listenerId (the Dart side hands it to the right listener).
+    private val collectionEvents = EventSinkHolder()
+    private val documentEvents = EventSinkHolder()
+    private val queryEvents = EventSinkHolder()
 
     override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         channel = MethodChannel(flutterPluginBinding.binaryMessenger, "co.rivium.sync/rivium_sync")
@@ -41,23 +43,25 @@ class RiviumSyncPlugin : FlutterPlugin, MethodCallHandler {
         queryEventChannel = EventChannel(flutterPluginBinding.binaryMessenger, "co.rivium.sync/query_events")
 
         // Set up stream handlers for event channels
-        collectionEventChannel.setStreamHandler(createStreamHandler(collectionEventSinks))
-        documentEventChannel.setStreamHandler(createStreamHandler(documentEventSinks))
-        queryEventChannel.setStreamHandler(createStreamHandler(queryEventSinks))
+        collectionEventChannel.setStreamHandler(createStreamHandler(collectionEvents))
+        documentEventChannel.setStreamHandler(createStreamHandler(documentEvents))
+        queryEventChannel.setStreamHandler(createStreamHandler(queryEvents))
 
         context = flutterPluginBinding.applicationContext
     }
 
-    private fun createStreamHandler(sinks: MutableMap<String, EventChannel.EventSink>): EventChannel.StreamHandler {
+    private class EventSinkHolder {
+        @Volatile var sink: EventChannel.EventSink? = null
+    }
+
+    private fun createStreamHandler(holder: EventSinkHolder): EventChannel.StreamHandler {
         return object : EventChannel.StreamHandler {
             override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
-                val listenerId = arguments as? String ?: return
-                events?.let { sinks[listenerId] = it }
+                holder.sink = events
             }
 
             override fun onCancel(arguments: Any?) {
-                val listenerId = arguments as? String ?: return
-                sinks.remove(listenerId)
+                holder.sink = null
             }
         }
     }
@@ -67,9 +71,9 @@ class RiviumSyncPlugin : FlutterPlugin, MethodCallHandler {
         collectionEventChannel.setStreamHandler(null)
         documentEventChannel.setStreamHandler(null)
         queryEventChannel.setStreamHandler(null)
-        collectionEventSinks.clear()
-        documentEventSinks.clear()
-        queryEventSinks.clear()
+        collectionEvents.sink = null
+        documentEvents.sink = null
+        queryEvents.sink = null
         scope.cancel()
         listeners.values.forEach { it.remove() }
         listeners.clear()
@@ -435,7 +439,7 @@ class RiviumSyncPlugin : FlutterPlugin, MethodCallHandler {
 
         val registration = riviumSync?.database(databaseId)?.collection(collectionId)?.listen { docs ->
             scope.launch {
-                collectionEventSinks[listenerId]?.success(mapOf(
+                collectionEvents.sink?.success(mapOf(
                     "listenerId" to listenerId,
                     "documents" to docs.map { it.toMap() }
                 ))
@@ -454,7 +458,7 @@ class RiviumSyncPlugin : FlutterPlugin, MethodCallHandler {
 
         val registration = riviumSync?.database(databaseId)?.collection(collectionId)?.listenDocument(documentId) { doc ->
             scope.launch {
-                documentEventSinks[listenerId]?.success(mapOf(
+                documentEvents.sink?.success(mapOf(
                     "listenerId" to listenerId,
                     "document" to doc?.toMap()
                 ))
@@ -508,7 +512,7 @@ class RiviumSyncPlugin : FlutterPlugin, MethodCallHandler {
 
                 val registration = query?.listen { docs ->
                     scope.launch {
-                        queryEventSinks[listenerId]?.success(mapOf(
+                        queryEvents.sink?.success(mapOf(
                             "listenerId" to listenerId,
                             "documents" to docs.map { it.toMap() }
                         ))

@@ -11,9 +11,11 @@ public class RiviumSyncPlugin: NSObject, FlutterPlugin {
     private var listeners: [String: ListenerRegistration] = [:]
 
     // Event sinks for streaming updates to Flutter
-    private var collectionEventSinks: [String: FlutterEventSink] = [:]
-    private var documentEventSinks: [String: FlutterEventSink] = [:]
-    private var queryEventSinks: [String: FlutterEventSink] = [:]
+    // One stream per event channel: Flutter keeps a single active stream per channel, so every listener of a kind
+    // shares it and each event carries its listenerId (the Dart side hands it to the right listener).
+    private var collectionEventSink: FlutterEventSink?
+    private var documentEventSink: FlutterEventSink?
+    private var queryEventSink: FlutterEventSink?
 
     // Stream handlers
     private var collectionStreamHandler: RiviumSyncStreamHandler?
@@ -31,9 +33,9 @@ public class RiviumSyncPlugin: NSObject, FlutterPlugin {
         instance.queryEventChannel = FlutterEventChannel(name: "co.rivium.sync/query_events", binaryMessenger: registrar.messenger())
 
         // Create stream handlers
-        instance.collectionStreamHandler = RiviumSyncStreamHandler(name: "collection", sinks: { instance.collectionEventSinks }, setSink: { id, sink in instance.collectionEventSinks[id] = sink }, removeSink: { id in instance.collectionEventSinks.removeValue(forKey: id) })
-        instance.documentStreamHandler = RiviumSyncStreamHandler(name: "document", sinks: { instance.documentEventSinks }, setSink: { id, sink in instance.documentEventSinks[id] = sink }, removeSink: { id in instance.documentEventSinks.removeValue(forKey: id) })
-        instance.queryStreamHandler = RiviumSyncStreamHandler(name: "query", sinks: { instance.queryEventSinks }, setSink: { id, sink in instance.queryEventSinks[id] = sink }, removeSink: { id in instance.queryEventSinks.removeValue(forKey: id) })
+        instance.collectionStreamHandler = RiviumSyncStreamHandler { instance.collectionEventSink = $0 }
+        instance.documentStreamHandler = RiviumSyncStreamHandler { instance.documentEventSink = $0 }
+        instance.queryStreamHandler = RiviumSyncStreamHandler { instance.queryEventSink = $0 }
 
         instance.collectionEventChannel?.setStreamHandler(instance.collectionStreamHandler)
         instance.documentEventChannel?.setStreamHandler(instance.documentStreamHandler)
@@ -552,7 +554,7 @@ public class RiviumSyncPlugin: NSObject, FlutterPlugin {
 
         let registration = RiviumSync.shared?.database(databaseId).collection(collectionId).listen { [weak self] docs in
             DispatchQueue.main.async {
-                self?.collectionEventSinks[listenerId]?.self([
+                self?.collectionEventSink?([
                     "listenerId": listenerId,
                     "documents": docs.map { $0.toDict() }
                 ])
@@ -576,25 +578,12 @@ public class RiviumSyncPlugin: NSObject, FlutterPlugin {
             return
         }
 
-        print("[RiviumSyncPlugin] handleListenDocument: listenerId=\(listenerId), documentId=\(documentId)")
-        print("[RiviumSyncPlugin] Current documentEventSinks keys: \(Array(documentEventSinks.keys))")
-
         let registration = RiviumSync.shared?.database(databaseId).collection(collectionId).listenDocument(documentId: documentId) { [weak self] doc in
-            print("[RiviumSyncPlugin] Document callback received for listenerId=\(listenerId), doc=\(doc != nil ? "present" : "nil")")
-            print("[RiviumSyncPlugin] documentEventSinks keys at callback: \(Array(self?.documentEventSinks.keys ?? [:].keys))")
-            let hasSink = self?.documentEventSinks[listenerId] != nil
-            print("[RiviumSyncPlugin] Has sink for \(listenerId): \(hasSink)")
-
             DispatchQueue.main.async {
-                if let sink = self?.documentEventSinks[listenerId] {
-                    print("[RiviumSyncPlugin] Sending to Flutter via sink for \(listenerId)")
-                    sink([
-                        "listenerId": listenerId,
-                        "document": doc?.toDict()
-                    ])
-                } else {
-                    print("[RiviumSyncPlugin] ERROR: No sink found for listenerId=\(listenerId)")
-                }
+                self?.documentEventSink?([
+                    "listenerId": listenerId,
+                    "document": doc?.toDict() as Any
+                ])
             }
         }
 
@@ -659,7 +648,7 @@ public class RiviumSyncPlugin: NSObject, FlutterPlugin {
 
             let registration = query?.listen { [weak self] docs in
                 DispatchQueue.main.async {
-                    self?.queryEventSinks[listenerId]?.self([
+                    self?.queryEventSink?([
                         "listenerId": listenerId,
                         "documents": docs.map { $0.toDict() }
                     ])
@@ -785,36 +774,21 @@ public class RiviumSyncPlugin: NSObject, FlutterPlugin {
 }
 
 // MARK: - Stream Handler for EventChannel
+/// One shared stream per channel (see the event sinks above); listen / cancel just set or clear the sink.
 private class RiviumSyncStreamHandler: NSObject, FlutterStreamHandler {
-    private let getSinks: () -> [String: FlutterEventSink]
-    private let setSink: (String, FlutterEventSink?) -> Void
-    private let removeSink: (String) -> Void
-    private let name: String
+    private let setSink: (FlutterEventSink?) -> Void
 
-    init(name: String = "unknown", sinks: @escaping () -> [String: FlutterEventSink], setSink: @escaping (String, FlutterEventSink?) -> Void, removeSink: @escaping (String) -> Void) {
-        self.name = name
-        self.getSinks = sinks
+    init(setSink: @escaping (FlutterEventSink?) -> Void) {
         self.setSink = setSink
-        self.removeSink = removeSink
     }
 
     func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
-        guard let listenerId = arguments as? String else {
-            print("[RiviumSyncStreamHandler:\(name)] onListen called with invalid arguments: \(String(describing: arguments))")
-            return nil
-        }
-        print("[RiviumSyncStreamHandler:\(name)] onListen: registering sink for listenerId=\(listenerId)")
-        setSink(listenerId, events)
-        print("[RiviumSyncStreamHandler:\(name)] Current sinks after registration: \(Array(getSinks().keys))")
+        setSink(events)
         return nil
     }
 
     func onCancel(withArguments arguments: Any?) -> FlutterError? {
-        guard let listenerId = arguments as? String else {
-            return nil
-        }
-        print("[RiviumSyncStreamHandler:\(name)] onCancel: removing sink for listenerId=\(listenerId)")
-        removeSink(listenerId)
+        setSink(nil)
         return nil
     }
 }

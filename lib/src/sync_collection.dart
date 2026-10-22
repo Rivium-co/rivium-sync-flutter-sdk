@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/services.dart';
+import 'listener_events.dart';
 import 'sync_document.dart';
 import 'sync_query.dart';
 
@@ -94,8 +95,7 @@ class SyncCollection {
   }
 
   /// Set a document (replace entire data)
-  Future<SyncDocument> set(
-      String documentId, Map<String, dynamic> data) async {
+  Future<SyncDocument> set(String documentId, Map<String, dynamic> data) async {
     final result = await _channel.invokeMethod<Map<dynamic, dynamic>>(
       'setDocument',
       {
@@ -147,37 +147,31 @@ class SyncCollection {
     void Function(List<SyncDocument> documents) callback, {
     void Function(Object error)? onError,
   }) {
-    final listenerId =
-        'collection_${id}_${DateTime.now().millisecondsSinceEpoch}';
+    final listenerId = ListenerEvents.newListenerId('collection_$id');
 
-    // IMPORTANT: Set up event channel subscription BEFORE calling native method
-    // This prevents race condition where native sends events before Flutter is listening
-    final subscription = const EventChannel('co.rivium.sync/collection_events')
-        .receiveBroadcastStream(listenerId)
-        .listen(
+    // Subscribe BEFORE calling the native method, so no event is sent before Flutter listens.
+    final stop = ListenerEvents.listen(
+      'co.rivium.sync/collection_events',
+      listenerId,
       (data) {
-        if (data is Map) {
-          // Check for error
-          if (data['error'] != null) {
-            onError?.call(RiviumSyncListenerError(
-              code: data['error']['code'] as String? ?? 'UNKNOWN_ERROR',
-              message: data['error']['message'] as String? ?? 'Unknown error',
-            ));
-            return;
-          }
-          // Extract documents from the wrapped response {listenerId: ..., documents: [...]}
-          final documentsList = data['documents'];
-          if (documentsList is List) {
-            final documents = documentsList
-                .map((item) => SyncDocument.fromMap(item as Map))
-                .toList();
-            callback(documents);
-          }
+        // Check for error
+        if (data['error'] != null) {
+          onError?.call(RiviumSyncListenerError(
+            code: data['error']['code'] as String? ?? 'UNKNOWN_ERROR',
+            message: data['error']['message'] as String? ?? 'Unknown error',
+          ));
+          return;
+        }
+        // Extract documents from the wrapped response {listenerId: ..., documents: [...]}
+        final documentsList = data['documents'];
+        if (documentsList is List) {
+          final documents = documentsList
+              .map((item) => SyncDocument.fromMap(item as Map))
+              .toList();
+          callback(documents);
         }
       },
-      onError: (error) {
-        onError?.call(error);
-      },
+      onError,
     );
 
     // Now start the native listener after event channel is ready
@@ -188,7 +182,7 @@ class SyncCollection {
     });
 
     return ListenerRegistration(() {
-      subscription.cancel();
+      stop();
       _channel
           .invokeMethod('removeCollectionListener', {'listenerId': listenerId});
     });
@@ -204,40 +198,32 @@ class SyncCollection {
     void Function(SyncDocument? document) callback, {
     void Function(Object error)? onError,
   }) {
-    final listenerId =
-        'doc_${id}_${documentId}_${DateTime.now().millisecondsSinceEpoch}';
+    final listenerId = ListenerEvents.newListenerId('doc_${id}_$documentId');
 
-    // IMPORTANT: Set up event channel subscription BEFORE calling native method
-    // This prevents race condition where native sends events before Flutter is listening
-    final subscription = const EventChannel('co.rivium.sync/document_events')
-        .receiveBroadcastStream(listenerId)
-        .listen(
+    // Subscribe BEFORE calling the native method, so no event is sent before Flutter listens.
+    final stop = ListenerEvents.listen(
+      'co.rivium.sync/document_events',
+      listenerId,
       (data) {
-        if (data == null) {
+        // Check for error
+        if (data['error'] != null) {
+          onError?.call(RiviumSyncListenerError(
+            code: data['error']['code'] as String? ?? 'UNKNOWN_ERROR',
+            message: data['error']['message'] as String? ?? 'Unknown error',
+          ));
+          return;
+        }
+        // Extract document from the wrapped response {listenerId: ..., document: ...}
+        final documentData = data['document'];
+        if (documentData == null) {
           callback(null);
-        } else if (data is Map) {
-          // Check for error
-          if (data['error'] != null) {
-            onError?.call(RiviumSyncListenerError(
-              code: data['error']['code'] as String? ?? 'UNKNOWN_ERROR',
-              message: data['error']['message'] as String? ?? 'Unknown error',
-            ));
-            return;
-          }
-          // Extract document from the wrapped response {listenerId: ..., document: ...}
-          final documentData = data['document'];
-          if (documentData == null) {
-            callback(null);
-          } else if (documentData is Map) {
-            callback(SyncDocument.fromMap(documentData));
-          } else {
-            callback(null);
-          }
+        } else if (documentData is Map) {
+          callback(SyncDocument.fromMap(documentData));
+        } else {
+          callback(null);
         }
       },
-      onError: (error) {
-        onError?.call(error);
-      },
+      onError,
     );
 
     // Now start the native listener after event channel is ready
@@ -249,7 +235,7 @@ class SyncCollection {
     });
 
     return ListenerRegistration(() {
-      subscription.cancel();
+      stop();
       _channel
           .invokeMethod('removeDocumentListener', {'listenerId': listenerId});
     });
