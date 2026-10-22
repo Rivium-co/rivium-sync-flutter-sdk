@@ -1,3 +1,14 @@
+## 0.2.8
+
+- Several live listeners at once (for example two queries, or a collection
+  and a document) all keep getting updates. Before, starting a second
+  listener of the same kind could stop updates to the first one, and closing
+  them could report "PlatformException(No active stream to cancel)".
+- `get()` with offline persistence throws when the server can't be reached
+  and the document is not cached, instead of returning null.
+- Uses rivium-sync-android 0.2.8 and RiviumSync (iOS) 0.2.6, installed
+  automatically.
+
 ## 0.2.7
 
 - Android release builds (R8 / ProGuard) work without rules in your app.
