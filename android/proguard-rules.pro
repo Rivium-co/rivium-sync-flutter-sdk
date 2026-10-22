@@ -40,3 +40,14 @@
 
 # ---- Kotlin Coroutines ----
 -dontwarn kotlinx.coroutines.**
+
+# ---- Gson generic types ----
+# `object : TypeToken<Map<String, Any?>>() {}` needs the generic signatures and the TypeToken subclasses; R8 (full
+# mode, the default since AGP 8) removes them, and release builds then fail with "TypeToken must be created with a
+# type argument".
+-keepattributes Signature, InnerClasses, EnclosingMethod, *Annotation*
+-keep,allowobfuscation,allowshrinking class com.google.gson.reflect.TypeToken
+-keep,allowobfuscation,allowshrinking class * extends com.google.gson.reflect.TypeToken
+
+# ---- RiviumSync SDK classes read and written by Gson ----
+-keep class co.rivium.sync.** { *; }
