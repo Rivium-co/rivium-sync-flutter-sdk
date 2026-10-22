@@ -5,4 +5,4 @@ const String riviumSyncSdkName = 'flutter';
 /// Version of the rivium_sync plugin.
 ///
 /// Must match `version` in pubspec.yaml (enforced by a unit test).
-const String riviumSyncSdkVersion = '0.2.4';
+const String riviumSyncSdkVersion = '0.2.5';
