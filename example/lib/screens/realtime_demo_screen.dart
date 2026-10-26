@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:rivium_sync/rivium_sync.dart';
-import '../config.dart';
+import '../app_config.dart';
 import '../widgets/result_card.dart';
 import '../widgets/code_snippet.dart';
 
@@ -49,7 +49,7 @@ class _RealtimeDemoScreenState extends State<RealtimeDemoScreen> {
   void _startCollectionListener() {
     if (_isListeningCollection) return;
 
-    _collectionListener = _collection.listen(
+    _collectionListener = AppConfig.mine(_collection).listen(
       (documents) {
         setState(() {
           _documents = documents;
@@ -115,6 +115,7 @@ class _RealtimeDemoScreenState extends State<RealtimeDemoScreen> {
     try {
       final doc = await _collection.add({
         'message': 'Hello at ${DateTime.now().toLocal()}',
+        'userId': AppConfig.userId,
         'sender': 'Test User',
         'timestamp': DateTime.now().toIso8601String(),
       });

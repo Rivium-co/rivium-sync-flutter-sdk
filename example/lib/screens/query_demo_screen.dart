@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:rivium_sync/rivium_sync.dart';
-import '../config.dart';
+import '../app_config.dart';
 import '../widgets/result_card.dart';
 import '../widgets/code_snippet.dart';
 
@@ -49,13 +49,13 @@ class _QueryDemoScreenState extends State<QueryDemoScreen> {
 
   Future<void> _queryAll() async {
     await _executeQuery('Get All Documents', () async {
-      return await _collection.getAll();
+      return await AppConfig.mine(_collection).get();
     });
   }
 
   Future<void> _queryWhereEquals() async {
     await _executeQuery('Where sender == "Test User"', () async {
-      return await _collection
+      return await AppConfig.mine(_collection)
           .where('sender', QueryOperator.equal, 'Test User')
           .get();
     });
@@ -63,8 +63,7 @@ class _QueryDemoScreenState extends State<QueryDemoScreen> {
 
   Future<void> _queryOrderBy() async {
     await _executeQuery('Order by timestamp (desc)', () async {
-      return await _collection
-          .query()
+      return await AppConfig.mine(_collection)
           .orderBy('timestamp', direction: OrderDirection.descending)
           .get();
     });
@@ -72,8 +71,7 @@ class _QueryDemoScreenState extends State<QueryDemoScreen> {
 
   Future<void> _queryLimit() async {
     await _executeQuery('Limit to 5 documents', () async {
-      return await _collection
-          .query()
+      return await AppConfig.mine(_collection)
           .limit(5)
           .get();
     });
@@ -81,7 +79,7 @@ class _QueryDemoScreenState extends State<QueryDemoScreen> {
 
   Future<void> _queryCompound() async {
     await _executeQuery('Compound query (where + orderBy + limit)', () async {
-      return await _collection
+      return await AppConfig.mine(_collection)
           .where('sender', QueryOperator.equal, 'Test User')
           .orderBy('timestamp', direction: OrderDirection.descending)
           .limit(3)
@@ -105,6 +103,7 @@ class _QueryDemoScreenState extends State<QueryDemoScreen> {
       for (int i = 0; i < 10; i++) {
         await _collection.add({
           'message': messages[i % messages.length],
+          'userId': AppConfig.userId,
           'sender': senders[i % senders.length],
           'timestamp': DateTime.now().subtract(Duration(hours: i)).toIso8601String(),
           'priority': i % 3,
@@ -260,10 +259,14 @@ final results = await collection
                         isError: true,
                       )
                     else if (_results.isEmpty)
-                      const Padding(
-                        padding: EdgeInsets.all(32),
+                      Padding(
+                        padding: const EdgeInsets.all(32),
                         child: Text(
-                          'No results. Run a query to see results here.',
+                          // Queries only return the signed-in user's messages (userId == me); after "Switch user" on
+                          // the Rules screen that is the other demo user.
+                          _lastQuery == null
+                              ? 'No results. Run a query to see results here.'
+                              : 'No messages for ${AppConfig.userId}. Tap + (Create sample data) to add some.',
                           textAlign: TextAlign.center,
                         ),
                       )

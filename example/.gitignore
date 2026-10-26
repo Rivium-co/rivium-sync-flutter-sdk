@@ -44,5 +44,5 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
-# Configuration with API keys - DO NOT COMMIT
-lib/config.dart
+# Local values (API key, server secret, local server) - DO NOT COMMIT, see lib/app_config.dart
+config/local.json

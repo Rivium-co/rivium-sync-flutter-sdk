@@ -10,7 +10,7 @@ Realtime database SDK for Flutter with offline-first sync.
 
 ```yaml
 dependencies:
-  rivium_sync: ^0.2.8
+  rivium_sync: ^0.3.0
 ```
 
 Then run:
@@ -40,6 +40,48 @@ final listener = todos.listen((documents) {
 Use names, not UUIDs. Realtime updates are published per database and
 collection name, so a UUID still works for plain reads and writes but live
 updates never arrive.
+
+## Writing documents
+
+`set()` writes a document with the id you choose. The document becomes exactly
+the data you pass:
+
+```dart
+await todos.set('todo-1', {'title': 'Buy milk', 'completed': false});
+```
+
+To change some fields and keep the others, merge instead:
+
+```dart
+await todos.set('todo-1', {'completed': true}, merge: true);
+```
+
+`WriteBatch.set()` takes the same `merge` option.
+
+## Listener errors
+
+Your security rules decide what a listener may receive. Pass `onError` to hear
+why a listener stopped; after an error it receives nothing more:
+
+```dart
+final listener = todos
+    .where('teamId', QueryOperator.equal, teamId)
+    .listen(
+      (documents) => print('Team todos: ${documents.length}'),
+      onError: (error) {
+        if (error is RiviumSyncListenerError && error.isQueryNotAllowed) {
+          // The rules do not allow this query. error.fields names the
+          // filters that would make it allowed.
+        } else if (error is RiviumSyncListenerError && error.isListenerRevoked) {
+          // The rules no longer allow it (for example the user left the team).
+        }
+      },
+    );
+```
+
+`listen()` and `listenDocument()` take the same `onError`. A query's `get()`
+throws a `RiviumSyncError` with code `RiviumSyncErrorCode.queryNotAllowed` (and
+its `fields`) when the rules do not allow the query.
 
 ## Verified user identity
 

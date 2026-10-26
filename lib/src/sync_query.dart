@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'package:flutter/services.dart';
 import 'listener_events.dart';
+import 'platform_errors.dart';
 import 'sync_document.dart';
-import 'sync_collection.dart';
 
 /// Query operators for filtering
 enum QueryOperator {
@@ -132,12 +132,16 @@ class SyncQuery {
     return params;
   }
 
-  /// Execute the query and get results
+  /// Execute the query and get results.
+  ///
+  /// Throws a [RiviumSyncError] with [RiviumSyncErrorCode.queryNotAllowed]
+  /// when the security rules do not allow the query; its `fields` name the
+  /// filters that would make it allowed.
   Future<List<SyncDocument>> get() async {
-    final result = await _channel.invokeMethod<List<dynamic>>(
-      'queryDocuments',
-      _buildQueryParams(),
-    );
+    final result = await withTypedErrors(() => _channel.invokeMethod<List<dynamic>>(
+          'queryDocuments',
+          _buildQueryParams(),
+        ));
 
     if (result == null) return [];
 
@@ -146,8 +150,11 @@ class SyncQuery {
 
   /// Listen to query results in realtime
   ///
-  /// [callback] is called whenever query results change
-  /// [onError] is called when an error occurs (optional)
+  /// [callback] is called with the current results, then whenever they change.
+  /// [onError] (optional) gets a [RiviumSyncListenerError]: `query_not_allowed`
+  /// (with `fields`) when the security rules do not allow the query, or
+  /// `listener_revoked` when they stop allowing it. After an error the
+  /// listener receives nothing more.
   ListenerRegistration listen(
     void Function(List<SyncDocument> documents) callback, {
     void Function(Object error)? onError,
@@ -159,12 +166,10 @@ class SyncQuery {
       'co.rivium.sync/query_events',
       listenerId,
       (data) {
-        // Check for error
-        if (data['error'] != null) {
-          onError?.call(RiviumSyncListenerError(
-            code: data['error']['code'] as String? ?? 'UNKNOWN_ERROR',
-            message: data['error']['message'] as String? ?? 'Unknown error',
-          ));
+        // The listener stopped: the security rules refused or revoked it.
+        final error = listenerErrorOf(data);
+        if (error != null) {
+          onError?.call(error);
           return;
         }
         // Extract documents from the wrapped response {listenerId: ..., documents: [...]}

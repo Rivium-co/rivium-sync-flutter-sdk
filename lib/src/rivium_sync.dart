@@ -5,6 +5,7 @@ import 'package:flutter/widgets.dart';
 import 'rivium_sync_config.dart';
 import 'sync_database.dart';
 import 'sync_document.dart';
+import 'platform_errors.dart';
 import 'rivium_sync_error.dart';
 import 'write_batch.dart';
 
@@ -24,6 +25,28 @@ typedef OnAwaitingUserTokenCallback = void Function();
 
 /// Callback for pending count changes
 typedef OnPendingCountCallback = void Function(int count);
+
+/// The kind of write a sync event is about.
+enum SyncOperationType { create, update, delete }
+
+/// A write that was waiting offline and that the server refused
+/// ([RiviumSync.documentRejections]).
+class DocumentRejection {
+  const DocumentRejection(this.documentId, this.operation, this.error);
+
+  final String documentId;
+  final SyncOperationType operation;
+
+  /// The server's answer ([RiviumSyncError.statusCode] is 403 when the rules refused it).
+  final RiviumSyncError error;
+}
+
+/// Called when the server refused a write that was waiting offline.
+typedef OnDocumentRejectedCallback = void Function(
+  String documentId,
+  SyncOperationType operation,
+  RiviumSyncError error,
+);
 
 /// Sync state for the sync engine
 enum SyncState {
@@ -71,6 +94,14 @@ class RiviumSync {
   static OnErrorCallback? _onError;
   static OnSyncStateCallback? _onSyncState;
   static OnPendingCountCallback? _onPendingCount;
+  static OnDocumentRejectedCallback? _onDocumentRejected;
+
+  // The streams: any number of listeners, each cancels its own subscription (unlike the on* setters, which keep one
+  // callback each, so a second screen replaced the first one's).
+  static final _connectionStates = StreamController<bool>.broadcast();
+  static final _syncStates = StreamController<SyncState>.broadcast();
+  static final _pendingCounts = StreamController<int>.broadcast();
+  static final _rejections = StreamController<DocumentRejection>.broadcast();
 
   static bool _initialized = false;
   static bool _offlineEnabled = false;
@@ -113,7 +144,14 @@ class RiviumSync {
   /// Check if SDK is initialized
   static bool get isInitialized => _initialized;
 
-  /// Set callback for connection state changes
+  /// The realtime connection, connected (true) or not, each time it changes.
+  ///
+  /// Any number of listeners: cancel your subscription when you are done (for
+  /// example in a widget's `dispose`).
+  static Stream<bool> get connectionStateChanges => _connectionStates.stream;
+
+  /// Set callback for connection state changes. Keeps one callback: a second
+  /// call replaces the first. Prefer [connectionStateChanges].
   static void onConnectionState(OnConnectionStateCallback callback) {
     _onConnectionState = callback;
   }
@@ -189,7 +227,7 @@ class RiviumSync {
   /// connects once a token is set (see [setUserToken], [refreshUserToken]).
   static Future<void> connect() async {
     _ensureInitialized();
-    await _channel.invokeMethod('connect');
+    await withTypedErrors(() => _channel.invokeMethod('connect'));
   }
 
   /// Disconnect from realtime sync service
@@ -244,7 +282,8 @@ class RiviumSync {
   /// List all databases for the current user
   static Future<List<DatabaseInfo>> listDatabases() async {
     _ensureInitialized();
-    final result = await _channel.invokeMethod<List<dynamic>>('listDatabases');
+    final result = await withTypedErrors(
+        () => _channel.invokeMethod<List<dynamic>>('listDatabases'));
 
     if (result == null) return [];
 
@@ -258,14 +297,44 @@ class RiviumSync {
   /// Check if offline persistence is enabled
   static bool get isOfflineEnabled => _offlineEnabled;
 
-  /// Set callback for sync state changes
+  /// The offline sync state each time it changes (with
+  /// [RiviumSyncConfig.offlineEnabled]). Any number of listeners.
+  static Stream<SyncState> get syncStateChanges => _syncStates.stream;
+
+  /// How many writes are waiting to be sent, each time it changes (with
+  /// [RiviumSyncConfig.offlineEnabled]). Any number of listeners.
+  static Stream<int> get pendingCountChanges => _pendingCounts.stream;
+
+  /// Writes waiting offline that the server refused, see [onDocumentRejected].
+  /// Any number of listeners.
+  static Stream<DocumentRejection> get documentRejections => _rejections.stream;
+
+  /// Set callback for sync state changes. Keeps one callback: a second call
+  /// replaces the first. Prefer [syncStateChanges].
   static void onSyncState(OnSyncStateCallback callback) {
     _onSyncState = callback;
   }
 
-  /// Set callback for pending count changes
+  /// Set callback for pending count changes. Keeps one callback: a second call
+  /// replaces the first. Prefer [pendingCountChanges].
   static void onPendingCount(OnPendingCountCallback callback) {
     _onPendingCount = callback;
+  }
+
+  /// Called when the server refuses a write that was waiting offline (your
+  /// security rules, invalid data), as in Firestore: the write is dropped, not
+  /// retried, and the local copy goes back to what the server has (a refused
+  /// new document disappears), so listeners see the change. [error] is the
+  /// server's answer ([RiviumSyncError.statusCode] is 403 when the rules
+  /// refused it). Only with [RiviumSyncConfig.offlineEnabled].
+  ///
+  /// Writes made while online that the server refuses are not queued: the
+  /// call itself throws a [RiviumSyncError].
+  ///
+  /// Keeps one callback: a second call replaces the first. Prefer
+  /// [documentRejections].
+  static void onDocumentRejected(OnDocumentRejectedCallback callback) {
+    _onDocumentRejected = callback;
   }
 
   /// Get the current sync state
@@ -390,6 +459,7 @@ class RiviumSync {
       case 'onConnectionState':
         final connected = call.arguments as bool;
         _onConnectionState?.call(connected);
+        _connectionStates.add(connected);
         break;
 
       case 'onError':
@@ -404,11 +474,37 @@ class RiviumSync {
       case 'onSyncState':
         final state = _parseSyncState(call.arguments as String?);
         _onSyncState?.call(state);
+        _syncStates.add(state);
+        break;
+
+      case 'onDocumentRejected':
+        final args = call.arguments;
+        if (args is! Map) break;
+        final documentId = args['documentId'];
+        if (documentId is! String) break;
+        final operation = SyncOperationType.values.firstWhere(
+          (op) => op.name == args['operation'],
+          orElse: () => SyncOperationType.update,
+        );
+        final error = args['error'];
+        final rejection = DocumentRejection(
+          documentId,
+          operation,
+          error is Map
+              ? RiviumSyncError.fromMap(error)
+              : const RiviumSyncError(
+                  code: RiviumSyncErrorCode.unknown,
+                  message: 'The server refused the write',
+                ),
+        );
+        _onDocumentRejected?.call(rejection.documentId, rejection.operation, rejection.error);
+        _rejections.add(rejection);
         break;
 
       case 'onPendingCount':
         final count = call.arguments as int? ?? 0;
         _onPendingCount?.call(count);
+        _pendingCounts.add(count);
         break;
     }
   }

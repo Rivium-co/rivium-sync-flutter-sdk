@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/services.dart';
 import 'sync_collection.dart';
+import 'platform_errors.dart';
 import 'sync_document.dart';
 import 'write_batch.dart';
 
@@ -51,10 +52,10 @@ class SyncDatabase {
 
   /// List all collections in this database
   Future<List<CollectionInfo>> listCollections() async {
-    final result = await _channel.invokeMethod<List<dynamic>>(
+    final result = await withTypedErrors(() => _channel.invokeMethod<List<dynamic>>(
       'listCollections',
       {'databaseId': id},
-    );
+    ));
 
     if (result == null) return [];
 
@@ -65,13 +66,13 @@ class SyncDatabase {
 
   /// Create a new collection in this database
   Future<SyncCollection> createCollection(String name) async {
-    final result = await _channel.invokeMethod<Map<dynamic, dynamic>>(
+    final result = await withTypedErrors(() => _channel.invokeMethod<Map<dynamic, dynamic>>(
       'createCollection',
       {
         'databaseId': id,
         'name': name,
       },
-    );
+    ));
 
     if (result == null) {
       throw Exception('Failed to create collection');
@@ -85,9 +86,9 @@ class SyncDatabase {
 
   /// Delete a collection
   Future<void> deleteCollection(String collectionId) async {
-    await _channel.invokeMethod(
+    await withTypedErrors(() => _channel.invokeMethod(
       'deleteCollection',
       {'collectionId': collectionId},
-    );
+    ));
   }
 }

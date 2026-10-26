@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:rivium_sync/rivium_sync.dart';
-import '../config.dart';
+import '../app_config.dart';
 import '../widgets/result_card.dart';
 import '../widgets/code_snippet.dart';
 
@@ -40,7 +40,7 @@ class _CrudDemoScreenState extends State<CrudDemoScreen> {
     setState(() => _isLoading = true);
     try {
       print('Loading documents from collection: ${_collection.id}');
-      final docs = await _collection.getAll();
+      final docs = await AppConfig.mine(_collection).get();
       print('Loaded ${docs.length} documents');
       for (var doc in docs) {
         print('  Doc: ${doc.id} - ${doc.data}');
@@ -70,6 +70,7 @@ class _CrudDemoScreenState extends State<CrudDemoScreen> {
     try {
       final doc = await _collection.add({
         'title': _titleController.text,
+        'userId': AppConfig.userId,
         'description': _descriptionController.text,
         'completed': false,
         'createdAt': DateTime.now().toIso8601String(),

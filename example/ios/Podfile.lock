@@ -1,16 +1,16 @@
 PODS:
-  - CocoaMQTT (2.2.3):
-    - CocoaMQTT/Core (= 2.2.3)
-  - CocoaMQTT/Core (2.2.3):
+  - CocoaMQTT (2.4.1):
+    - CocoaMQTT/Core (= 2.4.1)
+  - CocoaMQTT/Core (2.4.1):
     - MqttCocoaAsyncSocket (~> 1.0.8)
   - Flutter (1.0.0)
   - MqttCocoaAsyncSocket (1.0.8)
-  - PNProtocol (0.2.1):
+  - PNProtocol (0.2.2):
     - CocoaMQTT (~> 2.1)
-  - rivium_sync (0.1.0):
+  - rivium_sync (0.3.0):
     - Flutter
-    - RiviumSync (~> 0.1)
-  - RiviumSync (0.1.0):
+    - RiviumSync (~> 0.3.0)
+  - RiviumSync (0.3.0):
     - PNProtocol (~> 0.2)
 
 DEPENDENCIES:
@@ -31,13 +31,13 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/rivium_sync/ios"
 
 SPEC CHECKSUMS:
-  CocoaMQTT: 2889e233a2427ed012d67c9f50c91053f7c1faf6
-  Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
+  CocoaMQTT: a13957f6582a22999c3bf9593c81dbd4d2692cb7
+  Flutter: 71a624a5bc0c04062bf19101d501e466baf2fb47
   MqttCocoaAsyncSocket: 77d3b74f76228dd5a05d1f9526eab101d415b30c
-  PNProtocol: ba53bccd366f2e20b69cdd2fa32cf536da1ac387
-  rivium_sync: acb2fe5d9845d9bb2d7b184c0ade02f4b13408dd
-  RiviumSync: 6177a9ace68debd266eb3c07fdc37e4248345b4c
+  PNProtocol: ce13ca7d8a45515ed3d3eca08d8728f1c1e934de
+  rivium_sync: 0920831d23add0106d6889316103b96bff6bd772
+  RiviumSync: 11e5d18ecb2662f1b4b1996e0d5ea4b6c3ad3c5f
 
-PODFILE CHECKSUM: a57f30d18f102dd3ce366b1d62a55ecbef2158e5
+PODFILE CHECKSUM: 9c46fd01abff66081b39f5fa5767b3f1d0b11d76
 
-COCOAPODS: 1.16.2
+COCOAPODS: 1.17.0

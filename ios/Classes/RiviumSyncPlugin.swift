@@ -1,5 +1,6 @@
 import Flutter
 import UIKit
+import Combine
 import RiviumSync
 
 public class RiviumSyncPlugin: NSObject, FlutterPlugin {
@@ -9,6 +10,8 @@ public class RiviumSyncPlugin: NSObject, FlutterPlugin {
     private var queryEventChannel: FlutterEventChannel?
 
     private var listeners: [String: ListenerRegistration] = [:]
+    /// Forwards the sync state and pending count to Dart (RiviumSync.onSyncState / onPendingCount).
+    private var offlineStateObservers = Set<AnyCancellable>()
 
     // Event sinks for streaming updates to Flutter
     // One stream per event channel: Flutter keeps a single active stream per channel, so every listener of a kind
@@ -155,25 +158,46 @@ public class RiviumSyncPlugin: NSObject, FlutterPlugin {
             }
         }
 
-        let config = RiviumSyncConfig(
-            apiKey: apiKey,
-            userId: args["userId"] as? String,
-            userToken: args["userToken"] as? String,
-            debugMode: args["debugMode"] as? Bool ?? false,
-            autoReconnect: args["autoReconnect"] as? Bool ?? true,
-            offlineEnabled: args["offlineEnabled"] as? Bool ?? false,
-            offlineCacheSizeMb: args["offlineCacheSizeMb"] as? Int,
-            syncOnReconnect: args["syncOnReconnect"] as? Bool ?? true,
-            conflictStrategy: conflictStrategy,
-            maxSyncRetries: args["maxSyncRetries"] as? Int,
+        let builder = RiviumSyncConfigBuilder(apiKey: apiKey)
+            .debugMode(args["debugMode"] as? Bool ?? false)
+            .autoReconnect(args["autoReconnect"] as? Bool ?? true)
+            .offlineEnabled(args["offlineEnabled"] as? Bool ?? false)
+            .syncOnReconnect(args["syncOnReconnect"] as? Bool ?? true)
+            .conflictStrategy(conflictStrategy)
             // Report this plugin (flutter/<version>) in the X-Rivium-SDK header.
-            wrapperSdkName: args["wrapperSdkName"] as? String,
-            wrapperSdkVersion: args["wrapperSdkVersion"] as? String
-        )
+            .wrapperSdk(name: args["wrapperSdkName"] as? String, version: args["wrapperSdkVersion"] as? String)
+        // User identity for Security Rules (auth.uid). A signed token is trustworthy; the plain userId is not.
+        if let userId = args["userId"] as? String { _ = builder.userId(userId) }
+        if let userToken = args["userToken"] as? String { _ = builder.userToken(userToken) }
+        if let sizeMb = args["offlineCacheSizeMb"] as? Int { _ = builder.offlineCacheSizeMb(sizeMb) }
+
+        // A local Rivium Sync server (plain HTTP, realtime without TLS). Checked here too: the native builder
+        // stops the app on a bad value.
+        if let host = (args["emulatorHost"] as? String)?.trimmingCharacters(in: .whitespaces) {
+            let port = args["emulatorPort"] as? Int ?? 3006
+            guard !host.isEmpty, !host.contains("/"), !host.contains(":"), (1...65535).contains(port) else {
+                result(FlutterError(code: "INVALID_ARGS", message: "emulatorHost is a host name or IP address, without scheme or port; emulatorPort 1-65535", details: nil))
+                return
+            }
+            _ = builder.useEmulator(host: host, port: port)
+        }
+
+        let config = builder.build()
 
         RiviumSync.initialize(config: config)
 
         RiviumSync.shared?.delegate = self
+        // Queued writes the server refuses (offline persistence only; without it nothing is queued).
+        RiviumSync.shared?.removeSyncListener(self)
+        RiviumSync.shared?.addSyncListener(self)
+        // Sync state and pending count as they change (offline persistence only; no publishers otherwise).
+        offlineStateObservers.removeAll()
+        RiviumSync.shared?.syncStatePublisher?.receive(on: DispatchQueue.main).sink { [weak self] state in
+            self?.channel?.invokeMethod("onSyncState", arguments: Self.syncStateName(state))
+        }.store(in: &offlineStateObservers)
+        RiviumSync.shared?.pendingCountPublisher?.receive(on: DispatchQueue.main).sink { [weak self] count in
+            self?.channel?.invokeMethod("onPendingCount", arguments: count)
+        }.store(in: &offlineStateObservers)
         // The project requires a user token and none is set yet: connect() is
         // parked, not failed. The SDK connects when setUserToken supplies one.
         RiviumSync.shared?.onAwaitingUserToken = { [weak self] in
@@ -191,7 +215,7 @@ public class RiviumSyncPlugin: NSObject, FlutterPlugin {
             case .success:
                 result(nil)
             case .failure(let error):
-                result(FlutterError(code: "CONNECTION_ERROR", message: error.localizedDescription, details: nil))
+                result(Self.flutterError(error, code: "CONNECTION_ERROR"))
             }
         }
     }
@@ -213,7 +237,7 @@ public class RiviumSyncPlugin: NSObject, FlutterPlugin {
                 }
             } catch {
                 DispatchQueue.main.async {
-                    result(FlutterError(code: "DATABASE_ERROR", message: error.localizedDescription, details: nil))
+                    result(Self.flutterError(error, code: "DATABASE_ERROR"))
                 }
             }
         }
@@ -237,7 +261,7 @@ public class RiviumSyncPlugin: NSObject, FlutterPlugin {
                 }
             } catch {
                 DispatchQueue.main.async {
-                    result(FlutterError(code: "DATABASE_ERROR", message: error.localizedDescription, details: nil))
+                    result(Self.flutterError(error, code: "DATABASE_ERROR"))
                 }
             }
         }
@@ -258,7 +282,7 @@ public class RiviumSyncPlugin: NSObject, FlutterPlugin {
                 }
             } catch {
                 DispatchQueue.main.async {
-                    result(FlutterError(code: "DATABASE_ERROR", message: error.localizedDescription, details: nil))
+                    result(Self.flutterError(error, code: "DATABASE_ERROR"))
                 }
             }
         }
@@ -289,7 +313,7 @@ public class RiviumSyncPlugin: NSObject, FlutterPlugin {
                 }
             } catch {
                 DispatchQueue.main.async {
-                    result(FlutterError(code: "COLLECTION_ERROR", message: error.localizedDescription, details: nil))
+                    result(Self.flutterError(error, code: "COLLECTION_ERROR"))
                 }
             }
         }
@@ -315,7 +339,7 @@ public class RiviumSyncPlugin: NSObject, FlutterPlugin {
                 }
             } catch {
                 DispatchQueue.main.async {
-                    result(FlutterError(code: "COLLECTION_ERROR", message: error.localizedDescription, details: nil))
+                    result(Self.flutterError(error, code: "COLLECTION_ERROR"))
                 }
             }
         }
@@ -337,7 +361,7 @@ public class RiviumSyncPlugin: NSObject, FlutterPlugin {
                 }
             } catch {
                 DispatchQueue.main.async {
-                    result(FlutterError(code: "COLLECTION_ERROR", message: error.localizedDescription, details: nil))
+                    result(Self.flutterError(error, code: "COLLECTION_ERROR"))
                 }
             }
         }
@@ -360,7 +384,7 @@ public class RiviumSyncPlugin: NSObject, FlutterPlugin {
                 }
             } catch {
                 DispatchQueue.main.async {
-                    result(FlutterError(code: "DOCUMENT_ERROR", message: error.localizedDescription, details: nil))
+                    result(Self.flutterError(error, code: "DOCUMENT_ERROR"))
                 }
             }
         }
@@ -383,7 +407,7 @@ public class RiviumSyncPlugin: NSObject, FlutterPlugin {
                 }
             } catch {
                 DispatchQueue.main.async {
-                    result(FlutterError(code: "DOCUMENT_ERROR", message: error.localizedDescription, details: nil))
+                    result(Self.flutterError(error, code: "DOCUMENT_ERROR"))
                 }
             }
         }
@@ -405,7 +429,7 @@ public class RiviumSyncPlugin: NSObject, FlutterPlugin {
                 }
             } catch {
                 DispatchQueue.main.async {
-                    result(FlutterError(code: "DOCUMENT_ERROR", message: error.localizedDescription, details: nil))
+                    result(Self.flutterError(error, code: "DOCUMENT_ERROR"))
                 }
             }
         }
@@ -429,7 +453,7 @@ public class RiviumSyncPlugin: NSObject, FlutterPlugin {
                 }
             } catch {
                 DispatchQueue.main.async {
-                    result(FlutterError(code: "DOCUMENT_ERROR", message: error.localizedDescription, details: nil))
+                    result(Self.flutterError(error, code: "DOCUMENT_ERROR"))
                 }
             }
         }
@@ -445,15 +469,18 @@ public class RiviumSyncPlugin: NSObject, FlutterPlugin {
             return
         }
 
+        // Replace by default; merge only when asked.
+        let merge = args["merge"] as? Bool ?? false
+
         Task {
             do {
-                let doc = try await RiviumSync.shared?.database(databaseId).collection(collectionId).set(documentId: documentId, data: data)
+                let doc = try await RiviumSync.shared?.database(databaseId).collection(collectionId).set(documentId: documentId, data: data, merge: merge)
                 DispatchQueue.main.async {
                     result(doc?.toDict())
                 }
             } catch {
                 DispatchQueue.main.async {
-                    result(FlutterError(code: "DOCUMENT_ERROR", message: error.localizedDescription, details: nil))
+                    result(Self.flutterError(error, code: "DOCUMENT_ERROR"))
                 }
             }
         }
@@ -476,7 +503,7 @@ public class RiviumSyncPlugin: NSObject, FlutterPlugin {
                 }
             } catch {
                 DispatchQueue.main.async {
-                    result(FlutterError(code: "DOCUMENT_ERROR", message: error.localizedDescription, details: nil))
+                    result(Self.flutterError(error, code: "DOCUMENT_ERROR"))
                 }
             }
         }
@@ -492,44 +519,7 @@ public class RiviumSyncPlugin: NSObject, FlutterPlugin {
 
         Task {
             do {
-                var query = RiviumSync.shared?.database(databaseId).collection(collectionId).query()
-
-                if let filters = args["filters"] as? [[String: Any]] {
-                    for filter in filters {
-                        if let field = filter["field"] as? String,
-                           let opString = filter["operator"] as? String {
-                            let value = filter["value"]
-                            let op: QueryOperator
-                            switch opString {
-                            case "==": op = .equal
-                            case "!=": op = .notEqual
-                            case ">": op = .greaterThan
-                            case ">=": op = .greaterThanOrEqual
-                            case "<": op = .lessThan
-                            case "<=": op = .lessThanOrEqual
-                            case "array-contains": op = .arrayContains
-                            case "in": op = .in
-                            case "not-in": op = .notIn
-                            default: op = .equal
-                            }
-                            query = query?.where(field, op, value)
-                        }
-                    }
-                }
-
-                if let orderBy = args["orderBy"] as? [String: Any],
-                   let field = orderBy["field"] as? String {
-                    let direction: OrderDirection = orderBy["direction"] as? String == "desc" ? .descending : .ascending
-                    query = query?.orderBy(field, direction: direction)
-                }
-
-                if let limit = args["limit"] as? Int {
-                    query = query?.limit(limit)
-                }
-
-                if let offset = args["offset"] as? Int {
-                    query = query?.offset(offset)
-                }
+                let query = Self.buildQuery(args, databaseId: databaseId, collectionId: collectionId)
 
                 let docs = try await query?.get() ?? []
                 DispatchQueue.main.async {
@@ -537,7 +527,7 @@ public class RiviumSyncPlugin: NSObject, FlutterPlugin {
                 }
             } catch {
                 DispatchQueue.main.async {
-                    result(FlutterError(code: "QUERY_ERROR", message: error.localizedDescription, details: nil))
+                    result(Self.flutterError(error, code: "QUERY_ERROR"))
                 }
             }
         }
@@ -552,14 +542,18 @@ public class RiviumSyncPlugin: NSObject, FlutterPlugin {
             return
         }
 
-        let registration = RiviumSync.shared?.database(databaseId).collection(collectionId).listen { [weak self] docs in
+        let registration = RiviumSync.shared?.database(databaseId).collection(collectionId).listen(callback: { [weak self] docs in
             DispatchQueue.main.async {
                 self?.collectionEventSink?([
                     "listenerId": listenerId,
                     "documents": docs.map { $0.toDict() }
                 ])
             }
-        }
+        }, onError: { [weak self] error in
+            DispatchQueue.main.async {
+                self?.collectionEventSink?(["listenerId": listenerId, "error": Self.listenerErrorMap(error)])
+            }
+        })
 
         if let registration = registration {
             listeners[listenerId] = registration
@@ -578,20 +572,21 @@ public class RiviumSyncPlugin: NSObject, FlutterPlugin {
             return
         }
 
-        let registration = RiviumSync.shared?.database(databaseId).collection(collectionId).listenDocument(documentId: documentId) { [weak self] doc in
+        let registration = RiviumSync.shared?.database(databaseId).collection(collectionId).listenDocument(documentId: documentId, callback: { [weak self] doc in
             DispatchQueue.main.async {
                 self?.documentEventSink?([
                     "listenerId": listenerId,
                     "document": doc?.toDict() as Any
                 ])
             }
-        }
+        }, onError: { [weak self] error in
+            DispatchQueue.main.async {
+                self?.documentEventSink?(["listenerId": listenerId, "error": Self.listenerErrorMap(error)])
+            }
+        })
 
         if let registration = registration {
             listeners[listenerId] = registration
-            print("[RiviumSyncPlugin] Listener registered: \(listenerId)")
-        } else {
-            print("[RiviumSyncPlugin] WARNING: registration is nil for \(listenerId)")
         }
 
         result(nil)
@@ -606,64 +601,107 @@ public class RiviumSyncPlugin: NSObject, FlutterPlugin {
             return
         }
 
-        Task {
-            var query = RiviumSync.shared?.database(databaseId).collection(collectionId).query()
-
-            if let filters = args["filters"] as? [[String: Any]] {
-                for filter in filters {
-                    if let field = filter["field"] as? String,
-                       let opString = filter["operator"] as? String {
-                        let value = filter["value"]
-                        let op: QueryOperator
-                        switch opString {
-                        case "==": op = .equal
-                        case "!=": op = .notEqual
-                        case ">": op = .greaterThan
-                        case ">=": op = .greaterThanOrEqual
-                        case "<": op = .lessThan
-                        case "<=": op = .lessThanOrEqual
-                        case "array-contains": op = .arrayContains
-                        case "in": op = .in
-                        case "not-in": op = .notIn
-                        default: op = .equal
-                        }
-                        query = query?.where(field, op, value)
-                    }
-                }
-            }
-
-            if let orderBy = args["orderBy"] as? [String: Any],
-               let field = orderBy["field"] as? String {
-                let direction: OrderDirection = orderBy["direction"] as? String == "desc" ? .descending : .ascending
-                query = query?.orderBy(field, direction: direction)
-            }
-
-            if let limit = args["limit"] as? Int {
-                query = query?.limit(limit)
-            }
-
-            if let offset = args["offset"] as? Int {
-                query = query?.offset(offset)
-            }
-
-            let registration = query?.listen { [weak self] docs in
-                DispatchQueue.main.async {
-                    self?.queryEventSink?([
-                        "listenerId": listenerId,
-                        "documents": docs.map { $0.toDict() }
-                    ])
-                }
-            }
-
-            if let registration = registration {
-                DispatchQueue.main.async {
-                    self.listeners[listenerId] = registration
-                }
-            }
-
+        let query = Self.buildQuery(args, databaseId: databaseId, collectionId: collectionId)
+        let registration = query?.listen(callback: { [weak self] docs in
             DispatchQueue.main.async {
-                result(nil)
+                self?.queryEventSink?([
+                    "listenerId": listenerId,
+                    "documents": docs.map { $0.toDict() }
+                ])
             }
+        }, onError: { [weak self] error in
+            DispatchQueue.main.async {
+                self?.queryEventSink?(["listenerId": listenerId, "error": Self.listenerErrorMap(error)])
+            }
+        })
+
+        if let registration = registration {
+            listeners[listenerId] = registration
+        }
+
+        result(nil)
+    }
+
+    /// The query described by the call's filters / orderBy / limit / offset.
+    private static func buildQuery(_ args: [String: Any], databaseId: String, collectionId: String) -> SyncQuery? {
+        var query = RiviumSync.shared?.database(databaseId).collection(collectionId).query()
+
+        if let filters = args["filters"] as? [[String: Any]] {
+            for filter in filters {
+                if let field = filter["field"] as? String,
+                   let opString = filter["operator"] as? String {
+                    let value = filter["value"]
+                    let op: QueryOperator
+                    switch opString {
+                    case "==": op = .equal
+                    case "!=": op = .notEqual
+                    case ">": op = .greaterThan
+                    case ">=": op = .greaterThanOrEqual
+                    case "<": op = .lessThan
+                    case "<=": op = .lessThanOrEqual
+                    case "array-contains": op = .arrayContains
+                    case "in": op = .in
+                    case "not-in": op = .notIn
+                    default: op = .equal
+                    }
+                    query = query?.where(field, op, value)
+                }
+            }
+        }
+
+        if let orderBy = args["orderBy"] as? [String: Any],
+           let field = orderBy["field"] as? String {
+            let direction: OrderDirection = orderBy["direction"] as? String == "desc" ? .descending : .ascending
+            query = query?.orderBy(field, direction: direction)
+        }
+
+        if let limit = args["limit"] as? Int {
+            query = query?.limit(limit)
+        }
+
+        if let offset = args["offset"] as? Int {
+            query = query?.offset(offset)
+        }
+
+        return query
+    }
+
+    /// The error for a failed call, typed on the Dart side (RiviumSyncError.fromPlatformException): the HTTP status
+    /// the server answered with in `details.statusCode`, and `query_not_allowed` with its fields.
+    private static func flutterError(_ error: Error, code: String) -> FlutterError {
+        if case RiviumSyncError.queryNotAllowed(let message, let fields) = error {
+            return FlutterError(code: "query_not_allowed", message: message, details: ["fields": fields, "statusCode": 403])
+        }
+        let status = (error as? RiviumSyncError)?.statusCode
+        return FlutterError(code: code, message: error.localizedDescription,
+                            details: status.map { ["statusCode": $0] })
+    }
+
+    /// The error map of a refused queued write, read by RiviumSyncError.fromMap on the Dart side.
+    private static func rejectionErrorMap(_ error: Error) -> [String: Any] {
+        let flutter = flutterError(error, code: "DOCUMENT_ERROR")
+        var map: [String: Any] = ["code": flutter.code, "message": flutter.message ?? "The server refused the write"]
+        if let details = flutter.details as? [String: Any] {
+            map.merge(details) { _, new in new }
+        }
+        return map
+    }
+
+    /// The error map a listener event carries when the listener stopped (read by RiviumSyncListenerError.fromMap):
+    /// `query_not_allowed` with its fields, `listener_revoked`, `permission_denied`, else UNKNOWN_ERROR.
+    private static func listenerErrorMap(_ error: Error) -> [String: Any] {
+        guard let syncError = error as? RiviumSyncError else {
+            return ["code": "UNKNOWN_ERROR", "message": error.localizedDescription]
+        }
+        switch syncError {
+        case .queryNotAllowed(let message, let fields):
+            return ["code": "query_not_allowed", "message": message, "fields": fields, "statusCode": 403]
+        case .listenerRevoked(let message):
+            return ["code": "listener_revoked", "message": message]
+        case .permissionError(let message):
+            return ["code": "permission_denied", "message": message, "statusCode": 403]
+        default:
+            return ["code": syncError.code ?? "UNKNOWN_ERROR", "message": syncError.localizedDescription]
         }
     }
 
@@ -692,6 +730,7 @@ public class RiviumSyncPlugin: NSObject, FlutterPlugin {
 
                     let documentId = op["documentId"] as? String
                     let data = op["data"] as? [String: Any]
+                    let merge = op["merge"] as? Bool ?? false
 
                     guard let collection = RiviumSync.shared?.database(databaseId).collection(collectionId) else {
                         continue
@@ -700,7 +739,7 @@ public class RiviumSyncPlugin: NSObject, FlutterPlugin {
                     switch type {
                     case "set":
                         if let documentId = documentId, let data = data {
-                            batch.set(collection, documentId: documentId, data: data)
+                            batch.set(collection, documentId: documentId, data: data, merge: merge)
                         }
                     case "update":
                         if let documentId = documentId, let data = data {
@@ -725,7 +764,7 @@ public class RiviumSyncPlugin: NSObject, FlutterPlugin {
                 }
             } catch {
                 DispatchQueue.main.async {
-                    result(FlutterError(code: "BATCH_ERROR", message: error.localizedDescription, details: nil))
+                    result(Self.flutterError(error, code: "BATCH_ERROR"))
                 }
             }
         }
@@ -746,15 +785,16 @@ public class RiviumSyncPlugin: NSObject, FlutterPlugin {
     // MARK: - Offline Persistence Methods
 
     private func handleGetSyncState(result: @escaping FlutterResult) {
-        let state = RiviumSync.shared?.syncState ?? .idle
-        let stateString: String
+        result(Self.syncStateName(RiviumSync.shared?.syncState ?? .idle))
+    }
+
+    private static func syncStateName(_ state: SyncState) -> String {
         switch state {
-        case .idle: stateString = "idle"
-        case .syncing: stateString = "syncing"
-        case .offline: stateString = "offline"
-        case .error: stateString = "error"
+        case .idle: return "idle"
+        case .syncing: return "syncing"
+        case .offline: return "offline"
+        case .error: return "error"
         }
-        result(stateString)
     }
 
     private func handleGetPendingCount(result: @escaping FlutterResult) {
@@ -790,6 +830,22 @@ private class RiviumSyncStreamHandler: NSObject, FlutterStreamHandler {
     func onCancel(withArguments arguments: Any?) -> FlutterError? {
         setSink(nil)
         return nil
+    }
+}
+
+// MARK: - SyncListener
+/// Forwards the sync engine's rejections to Dart (RiviumSync.onDocumentRejected). The other events keep their
+/// default empty implementations.
+extension RiviumSyncPlugin: SyncEngine.SyncListener {
+    public func onDocumentRejected(documentId: String, operation: OperationType, error: Error) {
+        let event: [String: Any] = [
+            "documentId": documentId,
+            "operation": operation.rawValue,
+            "error": Self.rejectionErrorMap(error)
+        ]
+        DispatchQueue.main.async { [weak self] in
+            self?.channel?.invokeMethod("onDocumentRejected", arguments: event)
+        }
     }
 }
 

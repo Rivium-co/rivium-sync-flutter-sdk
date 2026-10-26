@@ -1,4 +1,6 @@
 import 'package:flutter/services.dart';
+import 'platform_errors.dart';
+import 'rivium_sync_error.dart';
 import 'sync_collection.dart';
 
 /// A write batch is used to perform multiple writes as a single atomic unit.
@@ -14,7 +16,7 @@ import 'sync_collection.dart';
 /// ```dart
 /// final batch = RiviumSync.batch();
 ///
-/// // Set a document
+/// // Set a document (replaces it; pass merge: true to merge instead)
 /// batch.set(usersCollection, 'user1', {'name': 'John', 'age': 30});
 ///
 /// // Update a document
@@ -35,10 +37,16 @@ class WriteBatch {
 
   /// Writes to the document referred to by the provided collection and document ID.
   /// If the document does not exist yet, it will be created.
-  /// If the document exists, its contents will be overwritten.
+  /// If the document exists, its contents will be overwritten - or, with
+  /// [merge] `true`, [data] is merged into it and its other fields are kept.
   ///
   /// Returns this WriteBatch instance for chaining.
-  WriteBatch set(SyncCollection collection, String documentId, Map<String, dynamic> data) {
+  WriteBatch set(
+    SyncCollection collection,
+    String documentId,
+    Map<String, dynamic> data, {
+    bool merge = false,
+  }) {
     _checkNotCommitted();
     _operations.add({
       'type': 'set',
@@ -46,6 +54,7 @@ class WriteBatch {
       'collectionId': collection.id,
       'documentId': documentId,
       'data': data,
+      'merge': merge,
     });
     return this;
   }
@@ -96,7 +105,10 @@ class WriteBatch {
 
   /// Commits all of the writes in this write batch as a single atomic unit.
   ///
-  /// Throws an exception if the batch commit fails or if the batch has already been committed.
+  /// Throws a [RiviumSyncError] if the server refuses the batch (none of its
+  /// writes is saved; [RiviumSyncError.statusCode] is 403 when the security
+  /// rules refused one of them), or a [StateError] if the batch has already
+  /// been committed.
   Future<void> commit() async {
     _checkNotCommitted();
     _committed = true;
@@ -106,9 +118,9 @@ class WriteBatch {
     }
 
     try {
-      await _channel.invokeMethod('executeBatch', {
-        'operations': _operations,
-      });
+      await withTypedErrors(() => _channel.invokeMethod('executeBatch', {
+            'operations': _operations,
+          }));
     } catch (e) {
       _committed = false; // Allow retry
       rethrow;

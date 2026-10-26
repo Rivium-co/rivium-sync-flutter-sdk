@@ -4,4 +4,7 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Debug builds only: plain HTTP to a Rivium Sync server on your computer (emulatorHost in local.json).
+         Rivium's own servers are HTTPS; release builds stay HTTPS-only. -->
+    <application android:usesCleartextTraffic="true" />
 </manifest>

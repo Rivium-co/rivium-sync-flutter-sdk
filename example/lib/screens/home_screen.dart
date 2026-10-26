@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:rivium_sync/rivium_sync.dart';
 import 'crud_demo_screen.dart';
@@ -5,6 +7,7 @@ import 'realtime_demo_screen.dart';
 import 'query_demo_screen.dart';
 import 'batch_demo_screen.dart';
 import 'offline_demo_screen.dart';
+import 'rules_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -39,18 +42,23 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  // Streams, not the on* setters: other screens listen too, and a setter keeps only the last screen's callback.
+  final List<StreamSubscription<Object?>> _subscriptions = [];
+
   void _setupListeners() {
-    RiviumSync.onConnectionState((connected) {
-      setState(() => _isConnected = connected);
-    });
+    _subscriptions.addAll([
+      RiviumSync.connectionStateChanges.listen((connected) => setState(() => _isConnected = connected)),
+      RiviumSync.syncStateChanges.listen((state) => setState(() => _syncState = state)),
+      RiviumSync.pendingCountChanges.listen((count) => setState(() => _pendingCount = count)),
+    ]);
+  }
 
-    RiviumSync.onSyncState((state) {
-      setState(() => _syncState = state);
-    });
-
-    RiviumSync.onPendingCount((count) {
-      setState(() => _pendingCount = count);
-    });
+  @override
+  void dispose() {
+    for (final subscription in _subscriptions) {
+      subscription.cancel();
+    }
+    super.dispose();
   }
 
   Future<void> _checkConnection() async {
@@ -178,6 +186,14 @@ class _HomeScreenState extends State<HomeScreen> {
               description: 'Work offline with automatic sync',
               color: Colors.teal,
               onTap: () => _navigateTo(const OfflineDemoScreen()),
+            ),
+
+            _buildDemoCard(
+              icon: Icons.shield,
+              title: 'Security Rules',
+              description: 'What the rules refuse, checked PASS / FAIL',
+              color: Colors.red,
+              onTap: () => _navigateTo(const RulesScreen()),
             ),
           ],
         ),

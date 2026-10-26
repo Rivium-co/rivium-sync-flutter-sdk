@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:rivium_sync/rivium_sync.dart';
-import '../config.dart';
+import '../app_config.dart';
 import '../widgets/result_card.dart';
 import '../widgets/code_snippet.dart';
 
@@ -46,6 +46,7 @@ class _BatchDemoScreenState extends State<BatchDemoScreen> {
           docId,
           {
             'message': 'Batch created document $i',
+            'userId': AppConfig.userId,
             'index': i,
             'createdAt': DateTime.now().toIso8601String(),
             'batchId': DateTime.now().millisecondsSinceEpoch.toString(),
@@ -163,11 +164,13 @@ class _BatchDemoScreenState extends State<BatchDemoScreen> {
       // Create 2 new documents
       batch.set(_collection, 'mixed-create-$timestamp-1', {
         'message': 'Mixed batch - created 1',
+        'userId': AppConfig.userId,
         'type': 'created',
         'timestamp': DateTime.now().toIso8601String(),
       });
       batch.set(_collection, 'mixed-create-$timestamp-2', {
         'message': 'Mixed batch - created 2',
+        'userId': AppConfig.userId,
         'type': 'created',
         'timestamp': DateTime.now().toIso8601String(),
       });

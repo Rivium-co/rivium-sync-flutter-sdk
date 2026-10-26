@@ -105,7 +105,8 @@ void main() {
       expect(map['offlineCacheSizeMb'], 200);
       expect(map['syncOnReconnect'], false);
       expect(map['conflictStrategy'], 'merge');
-      expect(map['maxSyncRetries'], 10);
+      // Deprecated and no longer limits anything: not sent to the native SDKs.
+      expect(map.containsKey('maxSyncRetries'), isFalse);
     });
 
     test('toMap should serialize default values correctly', () {
@@ -119,7 +120,7 @@ void main() {
       expect(map['offlineCacheSizeMb'], 100);
       expect(map['syncOnReconnect'], true);
       expect(map['conflictStrategy'], 'serverWins');
-      expect(map['maxSyncRetries'], 3);
+      expect(map.containsKey('maxSyncRetries'), isFalse);
     });
 
     test('toMap should serialize all conflict strategies', () {
@@ -269,7 +270,8 @@ void main() {
 
   group('RiviumSyncErrorCode', () {
     test('should have all expected error codes', () {
-      expect(RiviumSyncErrorCode.values.length, 11);
+      expect(RiviumSyncErrorCode.values.length, 12);
+      expect(RiviumSyncErrorCode.values, contains(RiviumSyncErrorCode.queryNotAllowed));
       expect(RiviumSyncErrorCode.values, contains(RiviumSyncErrorCode.notInitialized));
       expect(RiviumSyncErrorCode.values, contains(RiviumSyncErrorCode.networkError));
       expect(RiviumSyncErrorCode.values, contains(RiviumSyncErrorCode.authenticationError));
@@ -1867,7 +1869,7 @@ void main() {
         batch.set(collection, 'doc-1', {'name': 'test'});
 
         // First commit should fail
-        await expectLater(batch.commit(), throwsA(isA<PlatformException>()));
+        await expectLater(batch.commit(), throwsA(isA<RiviumSyncError>()));
 
         // Retry should work (committed flag reset on failure)
         await batch.commit();

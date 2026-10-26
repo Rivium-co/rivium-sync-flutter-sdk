@@ -1,6 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:rivium_sync/rivium_sync.dart';
-import '../config.dart';
+import '../app_config.dart';
 import '../widgets/result_card.dart';
 import '../widgets/code_snippet.dart';
 
@@ -27,20 +29,22 @@ class _OfflineDemoScreenState extends State<OfflineDemoScreen> {
     _collection = db.collection(AppConfig.messagesCollection);
     _checkStatus();
 
-    // Listen to sync state changes
-    RiviumSync.onSyncState((state) {
-      setState(() => _syncState = state);
-    });
+    // Sync state, pending writes and the connection as they change. Streams: the home screen listens too.
+    _subscriptions.addAll([
+      RiviumSync.syncStateChanges.listen((state) => setState(() => _syncState = state)),
+      RiviumSync.pendingCountChanges.listen((count) => setState(() => _pendingCount = count)),
+      RiviumSync.connectionStateChanges.listen((connected) => setState(() => _isConnected = connected)),
+    ]);
+  }
 
-    // Listen to pending count changes
-    RiviumSync.onPendingCount((count) {
-      setState(() => _pendingCount = count);
-    });
+  final List<StreamSubscription<Object?>> _subscriptions = [];
 
-    // Listen to connection state
-    RiviumSync.onConnectionState((connected) {
-      setState(() => _isConnected = connected);
-    });
+  @override
+  void dispose() {
+    for (final subscription in _subscriptions) {
+      subscription.cancel();
+    }
+    super.dispose();
   }
 
   Future<void> _checkStatus() async {
@@ -68,6 +72,7 @@ class _OfflineDemoScreenState extends State<OfflineDemoScreen> {
     try {
       final doc = await _collection.add({
         'message': 'Created at ${DateTime.now().toLocal()}',
+        'userId': AppConfig.userId,
         'timestamp': DateTime.now().toIso8601String(),
         'isConnected': _isConnected,
       });
@@ -141,7 +146,7 @@ Connection: ${_isConnected ? "Online - synced immediately" : "Offline - queued f
     });
 
     try {
-      final docs = await _collection.getAll();
+      final docs = await AppConfig.mine(_collection).get();
       setState(() {
         _result = '''Read ${docs.length} documents:
 ${docs.take(3).map((d) => '- ${d.id.substring(0, 8)}...: ${d.data['message'] ?? 'no message'}').join('\n')}
@@ -199,13 +204,13 @@ await RiviumSync.init(RiviumSyncConfig(
   offlineEnabled: true,
 ));
 
-// Listen to sync state changes
-RiviumSync.onSyncState((state) {
+// Listen to sync state changes (cancel the subscriptions when done)
+RiviumSync.syncStateChanges.listen((state) {
   print('Sync state: \$state');
 });
 
 // Listen to pending count changes
-RiviumSync.onPendingCount((count) {
+RiviumSync.pendingCountChanges.listen((count) {
   print('Pending writes: \$count');
 });
 

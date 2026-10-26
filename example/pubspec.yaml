@@ -23,3 +23,6 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  # config/local.json (not checked in, see lib/app_config.dart) is read at start-up.
+  assets:
+    - config/

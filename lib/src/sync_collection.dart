@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/services.dart';
 import 'listener_events.dart';
+import 'platform_errors.dart';
 import 'sync_document.dart';
 import 'sync_query.dart';
 
@@ -28,14 +29,14 @@ class SyncCollection {
 
   /// Add a new document to the collection
   Future<SyncDocument> add(Map<String, dynamic> data) async {
-    final result = await _channel.invokeMethod<Map<dynamic, dynamic>>(
+    final result = await withTypedErrors(() => _channel.invokeMethod<Map<dynamic, dynamic>>(
       'addDocument',
       {
         'databaseId': _databaseId,
         'collectionId': id,
         'data': data,
       },
-    );
+    ));
 
     if (result == null) {
       throw Exception('Failed to add document');
@@ -46,14 +47,14 @@ class SyncCollection {
 
   /// Get a document by ID
   Future<SyncDocument?> get(String documentId) async {
-    final result = await _channel.invokeMethod<Map<dynamic, dynamic>>(
+    final result = await withTypedErrors(() => _channel.invokeMethod<Map<dynamic, dynamic>>(
       'getDocument',
       {
         'databaseId': _databaseId,
         'collectionId': id,
         'documentId': documentId,
       },
-    );
+    ));
 
     if (result == null) return null;
     return SyncDocument.fromMap(result);
@@ -61,13 +62,13 @@ class SyncCollection {
 
   /// Get all documents in the collection
   Future<List<SyncDocument>> getAll() async {
-    final result = await _channel.invokeMethod<List<dynamic>>(
+    final result = await withTypedErrors(() => _channel.invokeMethod<List<dynamic>>(
       'getAllDocuments',
       {
         'databaseId': _databaseId,
         'collectionId': id,
       },
-    );
+    ));
 
     if (result == null) return [];
 
@@ -77,7 +78,7 @@ class SyncCollection {
   /// Update a document (partial update)
   Future<SyncDocument> update(
       String documentId, Map<String, dynamic> data) async {
-    final result = await _channel.invokeMethod<Map<dynamic, dynamic>>(
+    final result = await withTypedErrors(() => _channel.invokeMethod<Map<dynamic, dynamic>>(
       'updateDocument',
       {
         'databaseId': _databaseId,
@@ -85,7 +86,7 @@ class SyncCollection {
         'documentId': documentId,
         'data': data,
       },
-    );
+    ));
 
     if (result == null) {
       throw Exception('Failed to update document');
@@ -94,17 +95,31 @@ class SyncCollection {
     return SyncDocument.fromMap(result);
   }
 
-  /// Set a document (replace entire data)
-  Future<SyncDocument> set(String documentId, Map<String, dynamic> data) async {
-    final result = await _channel.invokeMethod<Map<dynamic, dynamic>>(
+  /// Write a document, creating it if it does not exist.
+  ///
+  /// By default the document becomes exactly [data]: fields left out are
+  /// removed. With [merge] `true`, [data] is merged into the document instead
+  /// and its other fields are kept.
+  ///
+  /// ```dart
+  /// await todos.set('todo-1', {'title': 'Buy milk', 'completed': false});
+  /// await todos.set('todo-1', {'completed': true}, merge: true);
+  /// ```
+  Future<SyncDocument> set(
+    String documentId,
+    Map<String, dynamic> data, {
+    bool merge = false,
+  }) async {
+    final result = await withTypedErrors(() => _channel.invokeMethod<Map<dynamic, dynamic>>(
       'setDocument',
       {
         'databaseId': _databaseId,
         'collectionId': id,
         'documentId': documentId,
         'data': data,
+        'merge': merge,
       },
-    );
+    ));
 
     if (result == null) {
       throw Exception('Failed to set document');
@@ -115,14 +130,14 @@ class SyncCollection {
 
   /// Delete a document
   Future<void> delete(String documentId) async {
-    await _channel.invokeMethod(
+    await withTypedErrors(() => _channel.invokeMethod(
       'deleteDocument',
       {
         'databaseId': _databaseId,
         'collectionId': id,
         'documentId': documentId,
       },
-    );
+    ));
   }
 
   // ==================== Query Operations ====================
@@ -141,8 +156,11 @@ class SyncCollection {
 
   /// Listen to all changes in the collection
   ///
-  /// [callback] is called whenever documents in the collection change
-  /// [onError] is called when an error occurs (optional)
+  /// [callback] is called with the current documents, then whenever documents
+  /// in the collection change.
+  /// [onError] (optional) gets a [RiviumSyncListenerError] when the security
+  /// rules do not allow the listener or stop allowing it
+  /// (`listener_revoked`); after an error the listener receives nothing more.
   ListenerRegistration listen(
     void Function(List<SyncDocument> documents) callback, {
     void Function(Object error)? onError,
@@ -154,12 +172,10 @@ class SyncCollection {
       'co.rivium.sync/collection_events',
       listenerId,
       (data) {
-        // Check for error
-        if (data['error'] != null) {
-          onError?.call(RiviumSyncListenerError(
-            code: data['error']['code'] as String? ?? 'UNKNOWN_ERROR',
-            message: data['error']['message'] as String? ?? 'Unknown error',
-          ));
+        // The listener stopped: the security rules refused or revoked it.
+        final error = listenerErrorOf(data);
+        if (error != null) {
+          onError?.call(error);
           return;
         }
         // Extract documents from the wrapped response {listenerId: ..., documents: [...]}
@@ -191,8 +207,9 @@ class SyncCollection {
   /// Listen to changes in a specific document
   ///
   /// [documentId] is the ID of the document to listen to
-  /// [callback] is called whenever the document changes (null if deleted)
-  /// [onError] is called when an error occurs (optional)
+  /// [callback] is called with the current document (null when it does not
+  /// exist), then whenever it changes (null when it is deleted).
+  /// [onError] (optional): as for [listen].
   ListenerRegistration listenDocument(
     String documentId,
     void Function(SyncDocument? document) callback, {
@@ -205,12 +222,10 @@ class SyncCollection {
       'co.rivium.sync/document_events',
       listenerId,
       (data) {
-        // Check for error
-        if (data['error'] != null) {
-          onError?.call(RiviumSyncListenerError(
-            code: data['error']['code'] as String? ?? 'UNKNOWN_ERROR',
-            message: data['error']['message'] as String? ?? 'Unknown error',
-          ));
+        // The listener stopped: the security rules refused or revoked it.
+        final error = listenerErrorOf(data);
+        if (error != null) {
+          onError?.call(error);
           return;
         }
         // Extract document from the wrapped response {listenerId: ..., document: ...}
@@ -240,15 +255,4 @@ class SyncCollection {
           .invokeMethod('removeDocumentListener', {'listenerId': listenerId});
     });
   }
-}
-
-/// Error class for listener errors
-class RiviumSyncListenerError implements Exception {
-  final String code;
-  final String message;
-
-  RiviumSyncListenerError({required this.code, required this.message});
-
-  @override
-  String toString() => 'RiviumSyncListenerError($code): $message';
 }

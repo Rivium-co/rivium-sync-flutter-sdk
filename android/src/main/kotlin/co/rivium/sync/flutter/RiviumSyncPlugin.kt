@@ -25,6 +25,8 @@ class RiviumSyncPlugin : FlutterPlugin, MethodCallHandler {
 
     private var riviumSync: RiviumSync? = null
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    /** Forwards the sync state and pending count to Dart (RiviumSync.onSyncState / onPendingCount). */
+    private var offlineStateJob: Job? = null
     private val listeners = mutableMapOf<String, ListenerRegistration>()
 
     // Event sinks for streaming updates to Flutter
@@ -168,7 +170,6 @@ class RiviumSyncPlugin : FlutterPlugin, MethodCallHandler {
         // Other offline persistence options
         (args["offlineCacheSizeMb"] as? Int)?.let { configBuilder.offlineCacheSizeMb(it) }
         (args["syncOnReconnect"] as? Boolean)?.let { configBuilder.syncOnReconnect(it) }
-        (args["maxSyncRetries"] as? Int)?.let { configBuilder.maxSyncRetries(it) }
         (args["conflictStrategy"] as? String)?.let { strategy ->
             val conflictStrategy = when (strategy) {
                 "clientWins" -> co.rivium.sync.sdk.offline.ConflictStrategy.CLIENT_WINS
@@ -182,10 +183,31 @@ class RiviumSyncPlugin : FlutterPlugin, MethodCallHandler {
         // Report this plugin (flutter/<version>) in the X-Rivium-SDK header.
         configBuilder.wrapperSdk(args["wrapperSdkName"] as? String, args["wrapperSdkVersion"] as? String)
 
+        // A local Rivium Sync server (plain HTTP, realtime without TLS). Dart checked the values already.
+        (args["emulatorHost"] as? String)?.let { host ->
+            val port = (args["emulatorPort"] as? Number)?.toInt() ?: 3006
+            try {
+                configBuilder.useEmulator(host, port)
+            } catch (e: IllegalArgumentException) {
+                result.error("INVALID_ARGS", e.message, null)
+                return
+            }
+        }
+
         val config = configBuilder.build()
         Log.d(TAG, "Flutter Plugin init: config.offlineEnabled=${config.offlineEnabled}")
 
+        riviumSync?.removeSyncListener(syncEvents)
         riviumSync = RiviumSync.initialize(context, config)
+        // Queued writes the server refuses (offline persistence only; without it nothing is queued).
+        riviumSync?.removeSyncListener(syncEvents)
+        riviumSync?.addSyncListener(syncEvents)
+        // Sync state and pending count as they change (offline persistence only; null flows otherwise).
+        offlineStateJob?.cancel()
+        offlineStateJob = scope.launch {
+            launch { riviumSync?.getSyncState()?.collect { channel.invokeMethod("onSyncState", it.name.lowercase()) } }
+            launch { riviumSync?.getPendingCount()?.collect { channel.invokeMethod("onPendingCount", it) } }
+        }
         // The project requires a user token and none is set yet: connect() is
         // parked, not failed. The SDK connects when setUserToken supplies one.
         riviumSync?.onAwaitingUserToken = {
@@ -216,7 +238,7 @@ class RiviumSyncPlugin : FlutterPlugin, MethodCallHandler {
     private fun connect(result: Result) {
         riviumSync?.connect(
             onSuccess = { result.success(null) },
-            onError = { error -> result.error("CONNECTION_ERROR", error.message, null) }
+            onError = { error -> result.fail("CONNECTION_ERROR", error) }
         )
     }
 
@@ -238,7 +260,7 @@ class RiviumSyncPlugin : FlutterPlugin, MethodCallHandler {
                     )
                 })
             } catch (e: Exception) {
-                result.error("DATABASE_ERROR", e.message, null)
+                result.fail("DATABASE_ERROR", e)
             }
         }
     }
@@ -259,7 +281,7 @@ class RiviumSyncPlugin : FlutterPlugin, MethodCallHandler {
                     )
                 })
             } catch (e: Exception) {
-                result.error("COLLECTION_ERROR", e.message, null)
+                result.fail("COLLECTION_ERROR", e)
             }
         }
     }
@@ -276,7 +298,7 @@ class RiviumSyncPlugin : FlutterPlugin, MethodCallHandler {
                     "databaseId" to databaseId
                 ))
             } catch (e: Exception) {
-                result.error("COLLECTION_ERROR", e.message, null)
+                result.fail("COLLECTION_ERROR", e)
             }
         }
     }
@@ -288,7 +310,7 @@ class RiviumSyncPlugin : FlutterPlugin, MethodCallHandler {
                 // Note: This needs the databaseId from somewhere
                 result.success(null)
             } catch (e: Exception) {
-                result.error("COLLECTION_ERROR", e.message, null)
+                result.fail("COLLECTION_ERROR", e)
             }
         }
     }
@@ -303,7 +325,7 @@ class RiviumSyncPlugin : FlutterPlugin, MethodCallHandler {
                 val doc = riviumSync?.database(databaseId)?.collection(collectionId)?.add(data)
                 result.success(doc?.toMap())
             } catch (e: Exception) {
-                result.error("DOCUMENT_ERROR", e.message, null)
+                result.fail("DOCUMENT_ERROR", e)
             }
         }
     }
@@ -318,7 +340,7 @@ class RiviumSyncPlugin : FlutterPlugin, MethodCallHandler {
                 val doc = riviumSync?.database(databaseId)?.collection(collectionId)?.get(documentId)
                 result.success(doc?.toMap())
             } catch (e: Exception) {
-                result.error("DOCUMENT_ERROR", e.message, null)
+                result.fail("DOCUMENT_ERROR", e)
             }
         }
     }
@@ -332,7 +354,7 @@ class RiviumSyncPlugin : FlutterPlugin, MethodCallHandler {
                 val docs = riviumSync?.database(databaseId)?.collection(collectionId)?.getAll() ?: emptyList()
                 result.success(docs.map { it.toMap() })
             } catch (e: Exception) {
-                result.error("DOCUMENT_ERROR", e.message, null)
+                result.fail("DOCUMENT_ERROR", e)
             }
         }
     }
@@ -348,7 +370,7 @@ class RiviumSyncPlugin : FlutterPlugin, MethodCallHandler {
                 val doc = riviumSync?.database(databaseId)?.collection(collectionId)?.update(documentId, data)
                 result.success(doc?.toMap())
             } catch (e: Exception) {
-                result.error("DOCUMENT_ERROR", e.message, null)
+                result.fail("DOCUMENT_ERROR", e)
             }
         }
     }
@@ -358,13 +380,15 @@ class RiviumSyncPlugin : FlutterPlugin, MethodCallHandler {
         val collectionId = call.argument<String>("collectionId") ?: return result.error("INVALID_ARGS", "collectionId required", null)
         val documentId = call.argument<String>("documentId") ?: return result.error("INVALID_ARGS", "documentId required", null)
         val data = call.argument<Map<String, Any?>>("data") ?: return result.error("INVALID_ARGS", "data required", null)
+        // Replace by default; merge only when asked.
+        val merge = call.argument<Boolean>("merge") ?: false
 
         scope.launch {
             try {
-                val doc = riviumSync?.database(databaseId)?.collection(collectionId)?.set(documentId, data)
+                val doc = riviumSync?.database(databaseId)?.collection(collectionId)?.set(documentId, data, merge)
                 result.success(doc?.toMap())
             } catch (e: Exception) {
-                result.error("DOCUMENT_ERROR", e.message, null)
+                result.fail("DOCUMENT_ERROR", e)
             }
         }
     }
@@ -379,7 +403,7 @@ class RiviumSyncPlugin : FlutterPlugin, MethodCallHandler {
                 riviumSync?.database(databaseId)?.collection(collectionId)?.delete(documentId)
                 result.success(null)
             } catch (e: Exception) {
-                result.error("DOCUMENT_ERROR", e.message, null)
+                result.fail("DOCUMENT_ERROR", e)
             }
         }
     }
@@ -387,49 +411,129 @@ class RiviumSyncPlugin : FlutterPlugin, MethodCallHandler {
     private fun queryDocuments(call: MethodCall, result: Result) {
         val databaseId = call.argument<String>("databaseId") ?: return result.error("INVALID_ARGS", "databaseId required", null)
         val collectionId = call.argument<String>("collectionId") ?: return result.error("INVALID_ARGS", "collectionId required", null)
+
+        scope.launch {
+            try {
+                val docs = buildQuery(call, databaseId, collectionId)?.get() ?: emptyList()
+                result.success(docs.map { it.toMap() })
+            } catch (e: Exception) {
+                result.fail("QUERY_ERROR", e)
+            }
+        }
+    }
+
+    /** The query described by the call's filters / orderBy / limit / offset. */
+    private fun buildQuery(call: MethodCall, databaseId: String, collectionId: String): SyncQuery? {
         val filters = call.argument<List<Map<String, Any?>>>("filters")
         val orderBy = call.argument<Map<String, Any?>>("orderBy")
         val limit = call.argument<Int>("limit")
         val offset = call.argument<Int>("offset")
 
-        scope.launch {
-            try {
-                var query = riviumSync?.database(databaseId)?.collection(collectionId)?.query()
+        var query = riviumSync?.database(databaseId)?.collection(collectionId)?.query()
 
-                filters?.forEach { filter ->
-                    val field = filter["field"] as String
-                    val operator = filter["operator"] as String
-                    val value = filter["value"]
-                    val op = when (operator) {
-                        "==" -> QueryOperator.EQUAL
-                        "!=" -> QueryOperator.NOT_EQUAL
-                        ">" -> QueryOperator.GREATER_THAN
-                        ">=" -> QueryOperator.GREATER_THAN_OR_EQUAL
-                        "<" -> QueryOperator.LESS_THAN
-                        "<=" -> QueryOperator.LESS_THAN_OR_EQUAL
-                        "array-contains" -> QueryOperator.ARRAY_CONTAINS
-                        "in" -> QueryOperator.IN
-                        "not-in" -> QueryOperator.NOT_IN
-                        else -> QueryOperator.EQUAL
-                    }
-                    query = query?.where(field, op, value)
-                }
+        filters?.forEach { filter ->
+            val field = filter["field"] as String
+            val operator = filter["operator"] as String
+            val value = filter["value"]
+            val op = when (operator) {
+                "==" -> QueryOperator.EQUAL
+                "!=" -> QueryOperator.NOT_EQUAL
+                ">" -> QueryOperator.GREATER_THAN
+                ">=" -> QueryOperator.GREATER_THAN_OR_EQUAL
+                "<" -> QueryOperator.LESS_THAN
+                "<=" -> QueryOperator.LESS_THAN_OR_EQUAL
+                "array-contains" -> QueryOperator.ARRAY_CONTAINS
+                "in" -> QueryOperator.IN
+                "not-in" -> QueryOperator.NOT_IN
+                else -> QueryOperator.EQUAL
+            }
+            query = query?.where(field, op, value)
+        }
 
-                orderBy?.let {
-                    val field = it["field"] as String
-                    val direction = if (it["direction"] == "desc") OrderDirection.DESCENDING else OrderDirection.ASCENDING
-                    query = query?.orderBy(field, direction)
-                }
+        orderBy?.let {
+            val field = it["field"] as String
+            val direction = if (it["direction"] == "desc") OrderDirection.DESCENDING else OrderDirection.ASCENDING
+            query = query?.orderBy(field, direction)
+        }
 
-                limit?.let { query = query?.limit(it) }
-                offset?.let { query = query?.offset(it) }
+        limit?.let { query = query?.limit(it) }
+        offset?.let { query = query?.offset(it) }
+        return query
+    }
 
-                val docs = query?.get() ?: emptyList()
-                result.success(docs.map { it.toMap() })
-            } catch (e: Exception) {
-                result.error("QUERY_ERROR", e.message, null)
+    /**
+     * Reply with the native error, typed on the Dart side (RiviumSyncError.fromPlatformException): the HTTP status
+     * the server answered with in `details.statusCode`, and `query_not_allowed` with its fields.
+     */
+    private fun Result.fail(code: String, e: Throwable) {
+        if (e is RiviumSyncException.QueryNotAllowedException) {
+            error("query_not_allowed", e.message, mapOf("fields" to e.fields, "statusCode" to e.statusCode))
+        } else {
+            error(code, e.message, errorDetails(e))
+        }
+    }
+
+    /** `statusCode` (and the server's error `code`) of a request the server answered, else null. */
+    private fun errorDetails(e: Throwable): Map<String, Any?>? {
+        val network = e as? RiviumSyncException.NetworkException ?: return null
+        if (network.statusCode == null && network.code == null) return null
+        return mapOf("statusCode" to network.statusCode, "serverCode" to network.code)
+    }
+
+    /** The error map of a refused queued write, read by RiviumSyncError.fromMap on the Dart side. */
+    private fun rejectionErrorMap(e: Throwable): Map<String, Any?> {
+        val map = mutableMapOf<String, Any?>(
+            "code" to if (e is RiviumSyncException.QueryNotAllowedException) "query_not_allowed" else "DOCUMENT_ERROR",
+            "message" to (e.message ?: "The server refused the write"),
+        )
+        errorDetails(e)?.let { map.putAll(it) }
+        if (e is RiviumSyncException.QueryNotAllowedException) map["fields"] = e.fields
+        return map
+    }
+
+    /**
+     * Forwards the sync engine's rejections to Dart (RiviumSync.onDocumentRejected). The other events are not
+     * forwarded.
+     */
+    private val syncEvents = object : SyncListener {
+        override fun onSyncStarted() {}
+        override fun onSyncCompleted(syncedCount: Int) {}
+        override fun onSyncFailed(error: Throwable) {}
+        override fun onConflictDetected(conflict: co.rivium.sync.sdk.offline.ConflictInfo) {}
+        override fun onDocumentSynced(documentId: String, operation: co.rivium.sync.sdk.offline.OperationType) {}
+        override fun onDocumentRejected(
+            documentId: String,
+            operation: co.rivium.sync.sdk.offline.OperationType,
+            error: Throwable,
+        ) {
+            scope.launch {
+                channel.invokeMethod("onDocumentRejected", mapOf(
+                    "documentId" to documentId,
+                    "operation" to operation.name.lowercase(),
+                    "error" to rejectionErrorMap(error)
+                ))
             }
         }
+    }
+
+    /**
+     * The error map a listener event carries when the listener stopped (read by RiviumSyncListenerError.fromMap):
+     * `query_not_allowed` with its fields, `listener_revoked`, `permission_denied` for another 403, else the
+     * server's code.
+     */
+    private fun listenerErrorMap(e: RiviumSyncException): Map<String, Any?> = when (e) {
+        is RiviumSyncException.QueryNotAllowedException -> mapOf(
+            "code" to "query_not_allowed",
+            "message" to e.message,
+            "fields" to e.fields,
+            "statusCode" to e.statusCode
+        )
+        is RiviumSyncException.NetworkException -> mapOf(
+            "code" to (e.code ?: if (e.statusCode == 403) "permission_denied" else "UNKNOWN_ERROR"),
+            "message" to e.message,
+            "statusCode" to e.statusCode
+        )
+        else -> mapOf("code" to "UNKNOWN_ERROR", "message" to e.message)
     }
 
     private fun listenCollection(call: MethodCall, result: Result) {
@@ -437,14 +541,21 @@ class RiviumSyncPlugin : FlutterPlugin, MethodCallHandler {
         val collectionId = call.argument<String>("collectionId") ?: return result.error("INVALID_ARGS", "collectionId required", null)
         val listenerId = call.argument<String>("listenerId") ?: return result.error("INVALID_ARGS", "listenerId required", null)
 
-        val registration = riviumSync?.database(databaseId)?.collection(collectionId)?.listen { docs ->
-            scope.launch {
-                collectionEvents.sink?.success(mapOf(
-                    "listenerId" to listenerId,
-                    "documents" to docs.map { it.toMap() }
-                ))
+        val registration = riviumSync?.database(databaseId)?.collection(collectionId)?.listen(
+            { docs ->
+                scope.launch {
+                    collectionEvents.sink?.success(mapOf(
+                        "listenerId" to listenerId,
+                        "documents" to docs.map { it.toMap() }
+                    ))
+                }
+            },
+            { error ->
+                scope.launch {
+                    collectionEvents.sink?.success(mapOf("listenerId" to listenerId, "error" to listenerErrorMap(error)))
+                }
             }
-        }
+        )
 
         registration?.let { listeners[listenerId] = it }
         result.success(null)
@@ -456,14 +567,22 @@ class RiviumSyncPlugin : FlutterPlugin, MethodCallHandler {
         val documentId = call.argument<String>("documentId") ?: return result.error("INVALID_ARGS", "documentId required", null)
         val listenerId = call.argument<String>("listenerId") ?: return result.error("INVALID_ARGS", "listenerId required", null)
 
-        val registration = riviumSync?.database(databaseId)?.collection(collectionId)?.listenDocument(documentId) { doc ->
-            scope.launch {
-                documentEvents.sink?.success(mapOf(
-                    "listenerId" to listenerId,
-                    "document" to doc?.toMap()
-                ))
+        val registration = riviumSync?.database(databaseId)?.collection(collectionId)?.listenDocument(
+            documentId,
+            { doc ->
+                scope.launch {
+                    documentEvents.sink?.success(mapOf(
+                        "listenerId" to listenerId,
+                        "document" to doc?.toMap()
+                    ))
+                }
+            },
+            { error ->
+                scope.launch {
+                    documentEvents.sink?.success(mapOf("listenerId" to listenerId, "error" to listenerErrorMap(error)))
+                }
             }
-        }
+        )
 
         registration?.let { listeners[listenerId] = it }
         result.success(null)
@@ -473,57 +592,28 @@ class RiviumSyncPlugin : FlutterPlugin, MethodCallHandler {
         val databaseId = call.argument<String>("databaseId") ?: return result.error("INVALID_ARGS", "databaseId required", null)
         val collectionId = call.argument<String>("collectionId") ?: return result.error("INVALID_ARGS", "collectionId required", null)
         val listenerId = call.argument<String>("listenerId") ?: return result.error("INVALID_ARGS", "listenerId required", null)
-        val filters = call.argument<List<Map<String, Any?>>>("filters")
-        val orderBy = call.argument<Map<String, Any?>>("orderBy")
-        val limit = call.argument<Int>("limit")
-        val offset = call.argument<Int>("offset")
 
-        scope.launch {
-            try {
-                var query = riviumSync?.database(databaseId)?.collection(collectionId)?.query()
-
-                filters?.forEach { filter ->
-                    val field = filter["field"] as String
-                    val operator = filter["operator"] as String
-                    val value = filter["value"]
-                    val op = when (operator) {
-                        "==" -> QueryOperator.EQUAL
-                        "!=" -> QueryOperator.NOT_EQUAL
-                        ">" -> QueryOperator.GREATER_THAN
-                        ">=" -> QueryOperator.GREATER_THAN_OR_EQUAL
-                        "<" -> QueryOperator.LESS_THAN
-                        "<=" -> QueryOperator.LESS_THAN_OR_EQUAL
-                        "array-contains" -> QueryOperator.ARRAY_CONTAINS
-                        "in" -> QueryOperator.IN
-                        "not-in" -> QueryOperator.NOT_IN
-                        else -> QueryOperator.EQUAL
-                    }
-                    query = query?.where(field, op, value)
-                }
-
-                orderBy?.let {
-                    val field = it["field"] as String
-                    val direction = if (it["direction"] == "desc") OrderDirection.DESCENDING else OrderDirection.ASCENDING
-                    query = query?.orderBy(field, direction)
-                }
-
-                limit?.let { query = query?.limit(it) }
-                offset?.let { query = query?.offset(it) }
-
-                val registration = query?.listen { docs ->
+        try {
+            val registration = buildQuery(call, databaseId, collectionId)?.listen(
+                { docs ->
                     scope.launch {
                         queryEvents.sink?.success(mapOf(
                             "listenerId" to listenerId,
                             "documents" to docs.map { it.toMap() }
                         ))
                     }
+                },
+                { error ->
+                    scope.launch {
+                        queryEvents.sink?.success(mapOf("listenerId" to listenerId, "error" to listenerErrorMap(error)))
+                    }
                 }
+            )
 
-                registration?.let { listeners[listenerId] = it }
-                result.success(null)
-            } catch (e: Exception) {
-                result.error("QUERY_ERROR", e.message, null)
-            }
+            registration?.let { listeners[listenerId] = it }
+            result.success(null)
+        } catch (e: Exception) {
+            result.fail("QUERY_ERROR", e)
         }
     }
 
@@ -544,12 +634,14 @@ class RiviumSyncPlugin : FlutterPlugin, MethodCallHandler {
                     @Suppress("UNCHECKED_CAST")
                     val data = op["data"] as? Map<String, Any?>
 
+                    val merge = op["merge"] as? Boolean ?: false
+
                     val collection = riviumSync?.database(databaseId)?.collection(collectionId) ?: continue
 
                     when (type) {
                         "set" -> {
                             if (documentId != null && data != null) {
-                                batch.set(collection, documentId, data)
+                                batch.set(collection, documentId, data, merge)
                             }
                         }
                         "update" -> {
@@ -573,7 +665,7 @@ class RiviumSyncPlugin : FlutterPlugin, MethodCallHandler {
                 batch.commit()
                 result.success(null)
             } catch (e: Exception) {
-                result.error("BATCH_ERROR", e.message, null)
+                result.fail("BATCH_ERROR", e)
             }
         }
     }
@@ -625,7 +717,7 @@ class RiviumSyncPlugin : FlutterPlugin, MethodCallHandler {
                 riviumSync?.clearOfflineCache()
                 result.success(null)
             } catch (e: Exception) {
-                result.error("CACHE_ERROR", e.message, null)
+                result.fail("CACHE_ERROR", e)
             }
         }
     }
