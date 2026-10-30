@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name             = 'rivium_sync'
-  s.version          = '0.3.0'
+  s.version          = '0.3.1'
   s.summary          = 'Flutter plugin for RiviumSync realtime database SDK'
   s.description      = <<-DESC
 Flutter plugin for RiviumSync — realtime database SDK with offline-first sync.
@@ -10,7 +10,7 @@ Flutter plugin for RiviumSync — realtime database SDK with offline-first sync.
   s.author           = { 'Rivium' => 'founder@rivium.co' }
   s.source           = { :path => '.' }
 
-  s.source_files = 'Classes/RiviumSyncPlugin.swift'
+  s.source_files = 'rivium_sync/Sources/rivium_sync/**/*.swift'
 
   s.dependency 'Flutter'
   s.dependency 'RiviumSync', '~> 0.3.0'

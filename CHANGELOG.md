@@ -1,3 +1,9 @@
+## 0.3.1
+
+### Added
+
+- iOS: Swift Package Manager support. Flutter apps with Swift Package Manager on (the default in current Flutter) get the native iOS SDK through it; apps on CocoaPods work as before.
+
 ## 0.3.0
 
 ### Breaking
