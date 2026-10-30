@@ -19,7 +19,6 @@ import 'demo_token_minter.dart';
 ///   your backend and sign user tokens. Never put a server secret in a real
 ///   app, and never build a release with this file.
 /// - `demoUserId`: the user the demo signs in as (default `flutter-demo-user`).
-/// - `emulatorHost`: for Rivium's own SDK tests; apps don't use this. Leave empty.
 class AppConfig {
   static const String _file = 'config/local.json';
   static Map<String, dynamic> _values = const {};

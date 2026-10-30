@@ -2,10 +2,9 @@ allprojects {
     repositories {
         google()
         mavenCentral()
-        mavenLocal()
         // RiviumSync SDK Repository (R2)
         maven { url = uri("https://pub-69e86fbad8904e4a8bd3a1b2d051df1f.r2.dev/maven") }
-        // Eclipse Paho for MQTT
+        // Eclipse Paho (used by the native Android SDK)
         maven { url = uri("https://repo.eclipse.org/content/repositories/paho-releases/") }
     }
 }

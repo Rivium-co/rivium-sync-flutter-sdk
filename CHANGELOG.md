@@ -88,7 +88,7 @@
 
 - Realtime connects where the Sync API tells it (host, port and whether the
   connection is encrypted), so your project can move to encrypted realtime
-  (`mqtts`, port 8885) without an app update. It never falls back from an
+  without an app update. It never falls back from an
   encrypted connection to a plain one.
 - Uses rivium-sync-android 0.2.5 and RiviumSync (iOS) 0.2.4, installed
   automatically.

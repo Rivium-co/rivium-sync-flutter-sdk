@@ -2,6 +2,5 @@
   "apiKey": "rv_live_your_api_key",
   "databaseName": "my-app",
   "serverSecret": "",
-  "demoUserId": "flutter-demo-user",
-  "emulatorHost": ""
+  "demoUserId": "flutter-demo-user"
 }

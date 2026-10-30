@@ -3,8 +3,7 @@ Pod::Spec.new do |s|
   s.version          = '0.3.0'
   s.summary          = 'Flutter plugin for RiviumSync realtime database SDK'
   s.description      = <<-DESC
-Flutter plugin for RiviumSync — realtime database SDK with offline-first sync
-powered by pn-protocol.
+Flutter plugin for RiviumSync — realtime database SDK with offline-first sync.
                        DESC
   s.homepage         = 'https://rivium.co/'
   s.license          = { :file => '../LICENSE' }
